@@ -55,6 +55,3 @@ def send_alert(alert):
                 print(f"Text sent to {SMS_TO}")
         except Exception as e:
             print(e)
-            
-        #Wait one second after sending text to avoid any sort of spam
-        time.sleep(1)

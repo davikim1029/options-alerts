@@ -1,4 +1,5 @@
 .env
+.*
 venv
 secret.key
 cache/*
@@ -6,4 +7,4 @@ __pycache__/
 *.pyc
 alert_log.csv
 logs/*
-pid/*
+pid/

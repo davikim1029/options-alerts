@@ -3,6 +3,7 @@ import csv
 import os
 from dotenv import load_dotenv
 import requests
+import traceback
 from datetime import datetime
 import yfinance as yf
 from cryptography.fernet import Fernet
@@ -12,13 +13,44 @@ import math
 
 load_dotenv()
 
-CONFIG_KEYS = [
-    "MAX_CALL_PRICE", "DELTA_MIN", "DELTA_MAX", "MIN_VOLUME",
-    "MIN_OI", "MIN_DTE", "MAX_DTE"
+NUMERIC_CONFIG_KEYS = [
+    "MAX_CALL_PRICE",
+    "DELTA_MIN",
+    "DELTA_MAX",
+    "MIN_VOLUME",
+    "MIN_OI",
+    "MIN_DTE",
+    "MAX_DTE",
+    "EMAIL_PORT",
+    "OVERPRICE_MULTIPLIER",
+    "IGNORE_NON_OPTIONABLE_MINUTES",
+    "IGNORE_OVERPRICED_MINUTES"
+]
+STRING_CONFIG_KEYS = [
+    "FINNHUB_API_KEY",
+    "OVERPRICE_FILE",
+    "TICKER_FILE",
+    "MARKET_FILE",
+    "NON_OPT_FILE",
+    "EMAIL_FROM",
+    "EMAIL_TO",
+    "SMS_TO",
+    "EMAIL_HOST"
 ]
 
 def get_config():
-    return {k: float(os.getenv(k)) for k in CONFIG_KEYS}
+    config = {}
+    for k in NUMERIC_CONFIG_KEYS:
+        value = os.getenv(k)
+        if value is not None:
+            config[k] = float(value)
+
+    for k in STRING_CONFIG_KEYS:
+        value = os.getenv(k)
+        if value is not None:
+            config[k] = value
+
+    return config
 
 def get_price_volume(symbol):
     try:
@@ -52,13 +84,14 @@ def log_alert(alert):
         writer.writerow([uid, alert['Ticker'], alert['Strike'], alert['Price'], alert['Expiration'], alert['Timestamp']])
 
 def rotate_ticker_batch(batch_size=50):
-    if not os.path.exists("tickers_cache.json"):
+    ticker_cache = os.getenv("TICKER_FILE")
+    if not os.path.exists(ticker_cache):
         r = requests.get("https://finnhub.io/api/v1/stock/symbol?exchange=US&token=" + os.getenv("FINNHUB_API_KEY"))
         all_tickers = [x['symbol'] for x in r.json() if '.' not in x['symbol']]
-        with open("tickers_cache.json", "w") as f:
+        with open(ticker_cache, "w") as f:
             json.dump(all_tickers, f)
     else:
-        with open("tickers_cache.json") as f:
+        with open(ticker_cache) as f:
             all_tickers = json.load(f)
 
     now = int(datetime.now().timestamp())
@@ -89,3 +122,72 @@ def calculate_call_delta(S, K, T, r, sigma):
 
     d1 = (math.log(S / K) + (r + (sigma ** 2) / 2) * T) / (sigma * math.sqrt(T))
     return norm.cdf(d1)
+
+
+def load_cache(file):
+    if os.path.exists(file):
+        with open(file) as f:
+            return json.load(f)
+    return {}
+
+def save_cache(data, file):
+    with open(file, "w") as f:
+        json.dump(data, f) 
+
+def should_ignore_ticker(ticker, file, minutes):
+    cache = load_cache(file)
+    if ticker in cache:
+        last_seen = datetime.fromisoformat(cache[ticker])
+        if datetime.now() - last_seen < timedelta(minutes=minutes):
+            return True
+    return False
+
+def mark_ticker(ticker, file,ttl=None):
+    cache = load_cache(file)
+    timestamp = datetime.now()
+    if ttl is not None:
+        timestamp += timedelta(minutes=ttl)
+    cache[ticker] = timestamp.isoformat()
+    save_cache(cache, file)
+    
+def is_market_open():
+    url = f"https://finnhub.io/api/v1/stock/market-status?token={os.getenv('FINNHUB_API_KEY')}"
+    r = requests.get(url).json()
+    return r.get("isOpen", True)
+
+def get_minutes_until_market_open():
+    token = os.getenv("FINNHUB_API_KEY")
+    url = f"https://finnhub.io/api/v1/stock/market-status?token={token}"
+    r = requests.get(url).json()
+
+    # Case 1: Market is already open
+    if r.get("isOpen"):
+        return 0
+
+    # Case 2: Market is closed — check when it reopens
+    next_open_unix = r.get("t")  # Unix timestamp of next open
+    if not next_open_unix:
+        return 60  # fallback: wait 60 minutes
+
+    next_open_time = datetime.fromtimestamp(next_open_unix)
+    now = datetime.now()
+    delta = next_open_time - now
+
+    # Convert to minutes and return
+    return max(1, int(delta.total_seconds() // 60))
+
+def unmark_ticker(ticker, cache_file):
+    cache = load_cache(cache_file)
+    if ticker in cache:
+        del cache[ticker]
+        save_cache(cache, cache_file)
+        
+def log_error(symbol, e):
+    today = datetime.now().strftime("%Y-%m-%d")
+    os.makedirs("logs/errors", exist_ok=True)
+    log_path = f"logs/errors/{today}.log"
+
+    with open(log_path, "a") as f:
+        f.write(f"\n[{datetime.now().isoformat()}] Error on {symbol}:\n")
+        f.write(f"{str(e)}\n")
+        f.write(traceback.format_exc())

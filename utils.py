@@ -6,6 +6,8 @@ import requests
 from datetime import datetime
 import yfinance as yf
 from cryptography.fernet import Fernet
+from scipy.stats import norm
+import math
 
 
 load_dotenv()
@@ -72,3 +74,18 @@ def load_encrypted_password():
 
     fernet = Fernet(key)
     return fernet.decrypt(encrypted).decode()
+
+
+def calculate_call_delta(S, K, T, r, sigma):
+    """
+    S = stock price
+    K = strike price
+    T = time to expiration in years
+    r = risk-free interest rate (e.g. 0.05 = 5%)
+    sigma = implied volatility (decimal, not percent)
+    """
+    if T <= 0 or sigma == 0:
+        return 0.0
+
+    d1 = (math.log(S / K) + (r + (sigma ** 2) / 2) * T) / (sigma * math.sqrt(T))
+    return norm.cdf(d1)

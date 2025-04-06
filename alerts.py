@@ -2,6 +2,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
+import time
 from utils import load_encrypted_password
 import os
 
@@ -11,8 +12,6 @@ EMAIL_FROM = os.getenv("EMAIL_FROM")
 EMAIL_PASS = load_encrypted_password()
 EMAIL_TO = os.getenv("EMAIL_TO")
 SMS_TO = os.getenv("SMS_TO", None)
-
-
 
 
 # Replace 'my_email_account' with the name you use for your email account in Keychain
@@ -40,12 +39,22 @@ def send_alert(alert):
     msg.attach(MIMEText(body, 'plain'))
 
     with smtplib.SMTP_SSL(os.getenv("EMAIL_HOST"), int(os.getenv("EMAIL_PORT"))) as server:
-        server.login(EMAIL_FROM, EMAIL_PASS)
-        server.send_message(msg)
+        try:
+            server.login(EMAIL_FROM, EMAIL_PASS)
+            
+            #Send Email
+            #server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())  # Send the email
+            #print(f"Email sent to {EMAIL_FROM}")
 
-        # Send SMS via Email-to-Text (optional)
-        if SMS_TO:
-            sms_msg = MIMEText(f"{alert['Ticker']} {alert['Strike']}C @ {alert['Price']}, {alert['Expiration']}")
-            sms_msg['From'] = EMAIL_FROM
-            sms_msg['To'] = SMS_TO
-            server.send_message(sms_msg)
+            # Send SMS via Email-to-Text (optional)
+            if SMS_TO:
+                sms_msg = MIMEText(f"{alert['Ticker']} {alert['Strike']}C @ {alert['Price']}, {alert['Expiration']}")
+                sms_msg['From'] = EMAIL_FROM
+                sms_msg['To'] = SMS_TO
+                server.send_message(sms_msg)
+                print(f"Text sent to {SMS_TO}")
+        except Exception as e:
+            print(e)
+            
+        #Wait one second after sending text to avoid any sort of spam
+        time.sleep(1)

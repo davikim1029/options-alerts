@@ -35,3 +35,6 @@ def encryptPassword():
         f.write(encrypted)
 
     print("Encrypted password saved to email_password.enc")
+
+if __name__ == "__main__":
+    encryptPassword()

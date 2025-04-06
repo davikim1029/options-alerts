@@ -1,0 +1,5 @@
+schedule
+yfinance
+requests
+python-dotenv
+cryptography

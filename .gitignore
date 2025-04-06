@@ -1,0 +1,4 @@
+.env
+venv
+tickers_cache.json
+secret.key

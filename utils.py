@@ -170,7 +170,8 @@ def mark_ticker(ticker, file,ttl=None):
     save_cache(cache, file)
     
 def _get_central_time():
-    return datetime.utcnow() + timedelta(hours=os.getenv("CENTRAL_OFFSET_HOURS"))
+    offset = float(os.getenv("CENTRAL_OFFSET_HOURS", "-5"))  # default to -5
+    return datetime.now(datetime.timezone.utc) + timedelta(hours=offset)
 
 def _load_market_cache():
     if os.path.exists(os.getenv("MARKET_FILE")):

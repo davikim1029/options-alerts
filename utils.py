@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 import requests
 import traceback
-from datetime import datetime
+from datetime import datetime,timedelta
 import yfinance as yf
 from cryptography.fernet import Fernet
 from scipy.stats import norm
@@ -24,7 +24,8 @@ NUMERIC_CONFIG_KEYS = [
     "EMAIL_PORT",
     "OVERPRICE_MULTIPLIER",
     "IGNORE_NON_OPTIONABLE_MINUTES",
-    "IGNORE_OVERPRICED_MINUTES"
+    "IGNORE_OVERPRICED_MINUTES",
+    "CENTRAL_OFFSET_HOURS"
 ]
 STRING_CONFIG_KEYS = [
     "FINNHUB_API_KEY",
@@ -52,24 +53,42 @@ def get_config():
 
     return config
 
+from datetime import datetime, timedelta
+
 def get_price_volume(symbol):
     try:
         stock = yf.Ticker(symbol)
+
+        # 1. Get current price (real-time or close fallback)
+        price = None
+        try:
+            price = stock.fast_info["lastPrice"]
+        except:
+            try:
+                price = stock.info["regularMarketPrice"]
+            except:
+                pass
+
+        # 2. Get historical volume from past 2 daily candles
         hist = stock.history(period="2d")
 
-        if hist.empty or hist.shape[0] < 1:
-            return None, None
+        volume = None
+        if not hist.empty:
+            if is_market_open():
+                # Use today's volume (can be mid-day)
+                volume = hist.iloc[-1]["Volume"]
+            else:
+                # Use yesterday's volume if today is closed
+                volume = hist.iloc[-1]["Volume"]
+                if volume == 0 and len(hist) > 1:
+                    volume = hist.iloc[-2]["Volume"]
 
-        volume = hist.iloc[-1]["Volume"]
-        if volume == 0 and len(hist) > 1:
-            volume = hist.iloc[-2]["Volume"]
-
-        price = hist.iloc[-1]["Close"]
         return price, volume
 
     except Exception as e:
-        print(f"Skipping {symbol} due to error in price/volume lookup: {e}")
+        print(f"⚠️ Error fetching price/volume for {symbol}: {e}")
         return None, None
+
 
 def already_alerted(uid):
     if not os.path.exists("alerts_log.csv"):
@@ -150,31 +169,88 @@ def mark_ticker(ticker, file,ttl=None):
     cache[ticker] = timestamp.isoformat()
     save_cache(cache, file)
     
-def is_market_open():
-    url = f"https://finnhub.io/api/v1/stock/market-status?token={os.getenv('FINNHUB_API_KEY')}"
-    r = requests.get(url).json()
-    return r.get("isOpen", True)
+def _get_central_time():
+    return datetime.utcnow() + timedelta(hours=os.getenv("CENTRAL_OFFSET_HOURS"))
 
-def get_minutes_until_market_open():
+def _load_market_cache():
+    if os.path.exists(os.getenv("MARKET_FILE")):
+        with open(os.getenv("MARKET_FILE")) as f:
+            return json.load(f)
+    return {}
+
+def _save_market_cache(data):
+    os.makedirs(os.path.dirname(os.getenv("MARKET_FILE")), exist_ok=True)
+    with open(os.getenv("MARKET_FILE"), "w") as f:
+        json.dump(data, f, indent=2)
+
+def _should_refresh_market_status():
+    """Return True if it's before 8:30am or after 5:00pm CST/CDT, or if no cache exists."""
+    now_central = _get_central_time()
+    market_open = now_central.replace(hour=8, minute=30, second=0, microsecond=0)
+    market_close = now_central.replace(hour=17, minute=0, second=0, microsecond=0)
+
+    # Outside market hours → refresh is allowed
+    if now_central < market_open or now_central >= market_close:
+        return True
+
+    # During market hours → only refresh if no valid cache exists
+    cache = _load_market_cache()
+    if not cache or "timestamp" not in cache:
+        return True
+
+    # Cache must be from today
+    last_check = datetime.fromisoformat(cache["timestamp"])
+    return last_check.date() != datetime.utcnow().date()
+
+def _fetch_market_status_from_finnhub():
+    """Calls Finnhub to get the current market status and caches it."""
     token = os.getenv("FINNHUB_API_KEY")
     url = f"https://finnhub.io/api/v1/stock/market-status?token={token}"
-    r = requests.get(url).json()
 
-    # Case 1: Market is already open
-    if r.get("isOpen"):
+    try:
+        response = requests.get(url).json()
+        is_open = response.get("isOpen", True)
+        next_open_unix = response.get("t")
+
+        cache_data = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "isOpen": is_open,
+            "nextOpenUnix": next_open_unix
+        }
+        _save_market_cache(cache_data)
+        return cache_data
+    except Exception as e:
+        print(f"⚠️ Error fetching market status: {e}")
+        return None
+
+def is_market_open():
+    if _should_refresh_market_status():
+        status = _fetch_market_status_from_finnhub()
+    else:
+        status = _load_market_cache()
+
+    if not status:
+        return True  # fallback: assume open
+    return status.get("isOpen", True)
+
+def get_minutes_until_market_open():
+    """Returns minutes until the market opens based on cached or fetched data."""
+    if _should_refresh_market_status():
+        status = _fetch_market_status_from_finnhub()
+    else:
+        status = _load_market_cache()
+
+    if not status or status.get("isOpen"):
         return 0
 
-    # Case 2: Market is closed — check when it reopens
-    next_open_unix = r.get("t")  # Unix timestamp of next open
+    next_open_unix = status.get("nextOpenUnix")
     if not next_open_unix:
-        return 60  # fallback: wait 60 minutes
+        return 60  # fallback
 
+    now = datetime.utcnow()
     next_open_time = datetime.fromtimestamp(next_open_unix)
-    now = datetime.now()
     delta = next_open_time - now
-
-    # Convert to minutes and return
-    return max(1, int(delta.total_seconds() // 60))
+    return max(1, int(delta.total_seconds() / 60))
 
 def unmark_ticker(ticker, cache_file):
     cache = load_cache(cache_file)

@@ -1,0 +1,13 @@
+schedule
+yfinance
+requests
+python-dotenv
+cryptography
+schedule
+scipy
+requests_oauthlib
+pyetrade
+transformers
+torch
+pydantic
+prompt_toolkit

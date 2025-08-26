@@ -2,7 +2,7 @@
 from services.buy_scanner import run_buy_scan
 from services.etrade_consumer import EtradeConsumer
 from services.sell_scanner import run_sell_scan
-from datetime import datetime,timedelta,timezone
+from services.api_worker import ApiWorker
 from threading import Thread
 import queue
 import time
@@ -12,12 +12,14 @@ user_input_queue = queue.Queue()
 error_queue = queue.Queue()
 
 
-
 BUY_INTERVAL_SECONDS = 300
 SELL_INTERVAL_SECONDS = 300
 
 
 def run_scan(mode:str, consumer:EtradeConsumer,debug:bool = False):
+        
+    api_worker = ApiWorker(consumer.session,2)
+    consumer.apiWorker = api_worker
     
     # Start worker to listen for input
     Thread(target=input_listener, daemon=True).start()
@@ -85,5 +87,5 @@ def input_listener():
 def input_processor():
     while True:
         cmd = user_input_queue.get()   # blocks until something is put
-        if cmd != None:
+        if cmd.lower() == "exit":
             input_processor_queue.put("exit")

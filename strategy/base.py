@@ -17,5 +17,5 @@ class SellStrategy(ABC):
         pass
     
     @abstractmethod
-    def should_sell(self, position: Position, context: dict) -> tuple[bool,str]:
+    def should_sell(self, position: Position) -> tuple[bool,str]:
         pass

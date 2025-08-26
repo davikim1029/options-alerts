@@ -11,3 +11,5 @@ transformers
 torch
 pydantic
 prompt_toolkit
+feedparser
+dacite

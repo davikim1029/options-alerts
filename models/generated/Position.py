@@ -10,8 +10,8 @@ class Position:
     symbolDescription: Optional[str] = None
     dateAcquired: Optional[int] = None
     pricePaid: Optional[float] = None
-    commissions: Optional[int] = None
-    otherFees: Optional[int] = None
+    commissions: Optional[float] = None
+    otherFees: Optional[float] = None
     quantity: Optional[int] = None
     positionIndicator: Optional[str] = None
     positionType: Optional[str] = None
@@ -23,9 +23,9 @@ class Position:
     totalGainPct: Optional[float] = None
     pctOfPortfolio: Optional[float] = None
     costPerShare: Optional[float] = None
-    todayCommissions: Optional[int] = None
-    todayFees: Optional[int] = None
-    todayPricePaid: Optional[int] = None
+    todayCommissions: Optional[float] = None
+    todayFees: Optional[float] = None
+    todayPricePaid: Optional[float] = None
     todayQuantity: Optional[int] = None
     adjPrevClose: Optional[float] = None
     lotsDetails: Optional[str] = None

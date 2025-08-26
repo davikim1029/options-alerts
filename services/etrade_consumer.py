@@ -5,24 +5,26 @@ from models.dataClassCreator import generate_dataclass
 from services.utils import from_dict
 from models.generated.Account import Account
 from models.generated.Position import Position
+from models.cache_manager import PositionCache
 from datetime import datetime, timezone,timedelta
 from cryptography.fernet import Fernet
 from requests_oauthlib import OAuth1Session
 from urllib.parse import urlencode
 import webbrowser
-import re
+from services.api_worker import ApiWorker,HttpMethod
+from dacite import from_dict, Config
 import time
 
 class EtradeConsumer:
-    def __init__(self, sandbox=True, debug=False):
+    def __init__(self,apiWorker:ApiWorker = None, sandbox=True, debug=False):
         self.debug = debug
-        self.position_cache = None
-        self.position_cache_timestamp = None
+        self.position_cache = PositionCache()
         self.sandbox = sandbox
+        self.apiWorker = apiWorker
         if sandbox:
-            envType="prod"
-        else: 
             envType="nonProd"
+        else: 
+            envType="prod"
         self.consumer_key,self.consumer_secret = self.load_encrypted_etrade_keysecret(sandbox)
         self.token_file = os.path.join("models", f"etrade_tokens_{envType}.json")
         self.base_url = "https://apisb.etrade.com" if sandbox else "https://api.etrade.com"
@@ -37,6 +39,44 @@ class EtradeConsumer:
                 raise Exception("Failed to generate access token.")
         else:
             self.load_tokens()
+       
+            
+    def get(self,url:str,headers = None,params = None):
+        if self.apiWorker is not None:
+            response = self.apiWorker.call_api(HttpMethod.GET,url,headers=headers,params=params)
+            if response.ok:
+                return response.data
+            else:
+                try:
+                    error = json.loads(response.response.text)
+                    error_code = error["Error"]["code"]
+                    if error_code == 10033:
+                        symbol = params["symbol"]
+                        print(f"The symbol {symbol} is invalid for api: {url}")
+                    
+                    #10031 means no options available for month
+                    #10032 means no options available
+                    elif (error_code != 10031 and error_code != 10032):
+                        print(f"Error: {error}")
+                        
+                except Exception as e:
+                    print(f"Error parsing error: {e}")
+                    
+                return None
+            
+        else:
+            return self.session.get(url,headers= headers,params=params)
+             
+    
+    def put(self,url,headers,params):
+        if self.apiWorker is not None:
+            response = self.apiWorker.call_api(HttpMethod.PUT, url,headers=headers,params=params )
+            if response["ok"]:
+                return response.data
+            else:
+                print(f"Error {response.status_code}: {response.error} ")
+        else:
+            return self.session.put(url,headers,params=params)
 
             
     def load_tokens(self):
@@ -61,20 +101,25 @@ class EtradeConsumer:
     def _validate_tokens(self):
         try:
             url = f"{self.base_url}/v1/accounts/list.json"
-            r = self.session.get(url)
+            r = self.get(url)
 
-            if r.status_code == 200:
+            status_code = r.status_code
+            if status_code == 200:
                 return True
-
-            print(f"[Token Validation] Failed with status {r.status_code}: {r.text}")
+            elif status_code == 401:
             
-            # Invalidate and regenerate
-            print("[Token Validation] Deleting invalid token file and re-authenticating...")
-            if os.path.exists(self.token_file):
-                os.remove(self.token_file)
+                # Invalidate and regenerate
+                print("[Token Validation] Deleting invalid token file and re-authenticating...")
+                if os.path.exists(self.token_file):
+                    os.remove(self.token_file)
 
-            #self.consumer_secret = self.load_or_create_encrypted_secret()  # Just to be sure it's loaded
-            return self.generate_token()
+                #self.consumer_secret = self.load_or_create_encrypted_secret()  # Just to be sure it's loaded
+                return self.generate_token()
+            else:
+                 print(f"[Token Validation] Failed with status: {r.text}")
+
+                
+
 
         except Exception as e:
             print(f"[Token Validation] Exception: {e}")
@@ -165,21 +210,9 @@ class EtradeConsumer:
             "noOfStrikes": 5,
         }
 
-        r = self.session.get(url, params=params)
-        time.sleep(1) #Inject a 1 second wait to prevent rate limits
-        if r.status_code == 401:
-            self.refresh_tokens()
-            r = self.session.get(url,params=params)
-            time.sleep(1) #Inject a 1 second wait to prevent rate limits
-
-
-        if r.status_code != 200:
-            if self.debug:
-                print(f"[OptionChain] Failed for {symbol}: {r.status_code}. {r.json().get("Error").get("message")}")
-            if (r.json().get("Error").get("message") == "No options are available for this symbol."):
-                return [],False
-            return [],True
-
+        r = self.get(url, params=params)
+        if r is None:
+            return None,False
         chain_data = r.json()
         optionPairs = chain_data.get("OptionChainResponse")
 
@@ -242,12 +275,7 @@ class EtradeConsumer:
 
     def get_accounts(self):
         url = f"{self.base_url}/v1/accounts/list.json"
-        r = self.session.get(url)  # ✅ Use authenticated session
-        time.sleep(1) #Inject a 1 second wait to prevent rate limits
-        if r.status_code != 200:
-            print(f"[ERROR] Failed to get account list: {r.status_code}")
-            return None
-
+        r = self.get(url)  # ✅ Use authenticated session
         try:
             accts = r.json().get("AccountListResponse").get("Accounts",[]).get("Account")
             return accts
@@ -258,39 +286,29 @@ class EtradeConsumer:
 
 
     def get_positions(self):
+        if self.position_cache.is_cached("positions"):
+            return self.position_cache.get("positions")
         accts = self.get_accounts()
         positions = []
         for idx,acct in enumerate(accts):
             acct_id = acct['accountId']
             acct_id_key = acct["accountIdKey"]
             url = f"{self.base_url}/v1/accounts/{acct_id_key}/portfolio.json"
-            r = self.session.get(url)
-            time.sleep(1) #Inject a 1 second wait to prevent rate limits
-            if r.status_code == 401:
-                self.refresh_tokens()
-                r = self.session.get(url)
-                time.sleep(1) #Inject a 1 second wait to prevent rate limits
+            r = self.get(url)
             data = r.json()
 
             accounts = data.get("PortfolioResponse", {}).get("AccountPortfolio", [])
             for acct in accounts:
                 #generate_dataclass(data=acct, name="Account", prepend_parent=False, nested_in_file=False)
-                account = from_dict(Account, acct)
-                for pos in account.Position:                    
+                for pos in acct["Position"]:                
                     positions.append(pos)
 
-        self.position_cache = positions
-        self.position_cache_timestamp = datetime.now(timezone.utc)
+        self.position_cache.add("positions",positions)
         return positions
 
     def get_greeks(self, option_symbol):
         url = f"{self.base_url}/v1/market/quote/{option_symbol}.json"
-        r = self.session.get(url, headers=self.get_headers())
-        time.sleep(1) #Inject a 1 second wait to prevent rate limits
-        if r.status_code == 401:
-            self.refresh_tokens()
-            r = self.session.get(url, headers=self.get_headers())
-
+        r = self.get(url, headers=self.get_headers())
         data = r.json()
         quote = data.get("QuoteResponse", {}).get("QuoteData", [{}])[0]
         greeks = quote.get("OptionGreeks", {})
@@ -304,35 +322,21 @@ class EtradeConsumer:
 
     def get_quote(self, symbol):
         url = f"{self.base_url}/v1/market/quote/{symbol}.json"
-        r = self.session.get(url, headers=self.get_headers())
-        time.sleep(1) #Inject a 1 second wait to prevent rate limits
-        if r.status_code == 401:
-            self.refresh_tokens()
-            r = self.session.get(url, headers=self.get_headers())
-            time.sleep(1) #Inject a 1 second wait to prevent rate limits
+        r = self.get(url, headers=self.get_headers())
         data = r.json()
         return data.get("QuoteResponse", {}).get("QuoteData", [{}])[0]
 
     def get_balance(self,acct_id_key,instType):
         url = f"{self.base_url}/v1/accounts/{acct_id_key}/balance.json?instType={instType}&realTimeNAV=true.json"
-        r = self.session.get(url)
-        time.sleep(1) #Inject a 1 second wait to prevent rate limits
-        if r.status_code == 401:
-            self.refresh_tokens()
-            r = self.session.get(url)
-            time.sleep(1) #Inject a 1 second wait to prevent rate limits
-        if (r.status_code == 200):
-            return r.json()["BalanceResponse"]["Computed"]
-        else:
-            return None
+        r = self.get(url)
+        return r.json()["BalanceResponse"]["Computed"]
   
     #How much capital is currently outstanding (ie don't buy more than comfortable)
     def get_open_exposure(self):
-        if (self.position_cache is None or self.is_stale(self.position_cache_timestamp) ):
-            positions = self.get_positions()
-        else:
-            positions = self.position_cache
-        return sum(p.totalCost for p in positions)
+        positions = self.get_positions()
+        if positions is not None:
+            return sum(p["totalCost"] for p in positions)
+        return None
     
     #Load password for notifications         
     def load_encrypted_etrade_keysecret(self,sandbox):

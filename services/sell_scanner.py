@@ -32,7 +32,6 @@ def run_sell_scan(mode: str, consumer: EtradeConsumer, messageQueue:queue, debug
         - Secondary strategies: add informational reasons but do not block
         """
 
-        context = {"exposure": consumer.get_open_exposure()}
         positions:Optional[List[Position]] = consumer.get_positions()
 
         if not positions:
@@ -46,7 +45,7 @@ def run_sell_scan(mode: str, consumer: EtradeConsumer, messageQueue:queue, debug
 
                 # Primary strategies → block if fail
                 for primaryStrategy in sell_strategies.get("Primary", []):
-                    success, error = primaryStrategy.should_sell(pos,context)
+                    success, error = primaryStrategy.should_sell(pos)
                     if not success:
                         should_sell = False
                         #AddMessage(f"{pos.symbolDescription} fails {primaryStrategy.name} for reason: {error}",messageQueue)
@@ -55,7 +54,7 @@ def run_sell_scan(mode: str, consumer: EtradeConsumer, messageQueue:queue, debug
                     # Secondary strategies → add info only
                     failure_reasons = ""
                     for secondaryStrategy in sell_strategies.get("Secondary", []):
-                        success, error = secondaryStrategy.should_sell(pos,context)
+                        success, error = secondaryStrategy.should_sell(pos)
                         if not success:
                             if failure_reasons == "":
                                 failure_reasons = f" | Secondary Failure Reason(s): {error}"
@@ -63,16 +62,16 @@ def run_sell_scan(mode: str, consumer: EtradeConsumer, messageQueue:queue, debug
                                 failure_reasons += f", {error}"
 
                     # Build alert message
-                    gainPct = pos.totalGainPct
-                    gain = pos.totalGain
-                    msg = f"SELL: {pos.Product.symbol} → {pos.symbolDescription} | Gain: {gain}/Gain Pct:{gainPct}{failure_reasons}"
+                    gainPct = pos["totalGainPct"]
+                    gain = pos["totalGain"]
+                    msg = f"SELL: {pos["Product"]["symbol"]} → {pos["symbolDescription"]} | Gain: {gain}/Gain Pct:{gainPct}{failure_reasons}"
 
                     # Send alert
                     send_alert(msg)
 
                     # Simulate/execute trade depending on mode
                     if mode in ("paper", "live"):
-                        messageQueue(f"[Trade] Execute SELL for {pos.symbolDescription}",messageQueue)
+                        messageQueue(f"[Trade] Execute SELL for {pos["symbolDescription"]}",messageQueue)
                         # TODO: hook into trade execution here
 
             except Exception as e:

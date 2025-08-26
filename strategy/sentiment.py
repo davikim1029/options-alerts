@@ -6,9 +6,12 @@ import yfinance as yf
 import requests
 from transformers import pipeline
 import os
-from typing import Optional
+from services.news_aggregator import aggregate_headlines_smart
+from models.generated.Position import Position
+from models.cache_manager import NewsApiCache
+from typing import Optional,Union
 
-
+MAX_LEN = 250  # trim text before passing to model
 sentiment_pipeline = pipeline("sentiment-analysis")
 
 ETF_LOOKUP = {
@@ -27,6 +30,10 @@ ETF_LOOKUP = {
 
 
 class SectorSentimentStrategy(BuyStrategy,SellStrategy):
+    
+    def __init__(self):
+        self._news_cache:NewsApiCache = NewsApiCache()
+    
     """
     Combines buy and sell sentiment logic for options based on sector ETF trend
     and news sentiment for the underlying symbol.
@@ -41,12 +48,12 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
         return self._evaluate(option, side="buy")
 
     # === SELL LOGIC ===
-    def should_sell(self, option: OptionContract, context: dict) -> tuple[bool, str]:
-        return self._evaluate(option, side="sell")
+    def should_sell(self, position: Position, context: dict) -> tuple[bool, str]:
+        return self._evaluate(position, side="sell")
 
     # === INTERNAL COMMON LOGIC ===
-    def _evaluate(self, option: OptionContract, side: str) -> tuple[bool, str]:
-        symbol = option.underlyingSymbol
+    def _evaluate(self, securityObj: Union[OptionContract,Position], side: str) -> tuple[bool, str]:
+        symbol = self.get_symbol(securityObj)
         try:
             # 1. Get sector info
             ticker_info = yf.Ticker(symbol).info
@@ -70,8 +77,15 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
                 pass  # we’ll interpret in sell logic
 
             # 4. News sentiment evaluation
-            headlines = self.get_news_headlines(symbol)
-            avg_sent = self.average_news_sentiment(headlines)
+            if self._news_cache.is_cached(symbol):
+                headlines,avg_sent = self.get_cached_info(symbol)
+            else:
+                headlines = aggregate_headlines_smart(symbol)
+                if headlines == []:
+                    error = f"[SectorSentiment:{side}] No Headline data found"
+                    return False,error 
+                avg_sent = self.average_news_sentiment(headlines)
+                self.add_to_cache(symbol,headlines,avg_sent)
             if avg_sent is not None:
                 if side == "buy" and avg_sent < 0:
                     error = f"[SectorSentiment:{side}] Bearish sentiment on {symbol}: {avg_sent}"
@@ -103,26 +117,52 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
         long_ma = hist["Close"].rolling(20).mean().iloc[-1]
         return short_ma > long_ma
 
-    def get_news_headlines(self, symbol: str) -> list:
-        api_key = os.getenv("NEWSAPI_KEY")
-        if not api_key:
-            raise ValueError("NEWSAPI_KEY not set in environment.")
-
-        res = requests.get(
-            "https://newsapi.org/v2/everything",
-            params={
-                "q": symbol,
-                "sortBy": "publishedAt",
-                "pageSize": 5,
-                "apiKey": api_key
-            }
-        )
-        data = res.json()
-        return [a["title"] for a in data.get("articles", [])]
-
-    def average_news_sentiment(self, headlines: list[str]) -> Optional[float]:
+    def average_news_sentiment(self, headlines: list) -> Optional[float]:
         if not headlines:
             return None
-        results = sentiment_pipeline(headlines)
-        scores = [r["score"] if r["label"] == "POSITIVE" else -r["score"] for r in results]
+
+        # Get safe combined text per headline
+        combined_headlines = [
+            headline.combined_text()[:MAX_LEN]  # safe trim
+            for headline in headlines
+        ]
+
+        # Run through pipeline (will batch internally)
+        results = sentiment_pipeline(combined_headlines, truncation=True)
+
+        # Convert to +/- scores
+        scores = []
+        for r in results:
+            if r["label"] == "POSITIVE":
+                scores.append(r["score"])
+            elif r["label"] == "NEGATIVE":
+                scores.append(-r["score"])
+            else:  # some models also return NEUTRAL
+                scores.append(0.0)
+
         return sum(scores) / len(scores) if scores else None
+    
+    def add_to_cache(self,ticker:str, headlines:list[str], avg_sentiment:str):
+        cache_value = {
+            "headlines":headlines,
+            "avg_sentiment":avg_sentiment,
+        }
+        self._news_cache.add(ticker,cache_value)
+        return None
+    
+    def get_cached_info(self,ticker:str):
+        if self._newscache.is_cached(ticker):
+            cached_value = self._news_cache.get(ticker)
+            headlines = cached_value["headlines"]
+            avg_sentiment = cached_value["avg_sentiment"]
+            return headlines,avg_sentiment
+        return None,None
+
+
+    def get_symbol(self, obj: Union[OptionContract, Position]):
+        if isinstance(obj, OptionContract):
+            return obj.underlyingSymbol
+        elif isinstance(obj, Position):
+            return obj.Product.symbol
+        else:
+            raise TypeError(f"Unexpected type: {type(x)}")

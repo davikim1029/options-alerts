@@ -2,20 +2,16 @@ import os
 import requests
 import json
 from datetime import datetime
+from models.cache_manager import TickerCache
 
-FINNHUB_TICKER_CACHE = "cache/all_us_tickers.json"
+ticker_cache = TickerCache()
 
-def fetch_us_tickers_from_finnhub(api_key=None, cache_path=FINNHUB_TICKER_CACHE, force_refresh=False):
-    if not api_key:
-        api_key = os.getenv("FINNHUB_API_KEY")
+def fetch_us_tickers_from_finnhub():
+    api_key = os.getenv("FINNHUB_API_KEY")
     if not api_key:
         raise Exception("FINNHUB_API_KEY not set in environment")
 
     # Use cached file if available and not forced
-    if os.path.exists(cache_path) and not force_refresh:
-        with open(cache_path) as f:
-            cached = json.load(f)
-            return cached.get("tickers", [])
 
     print("[Tickers] Fetching from Finnhub...")
     url = f"https://finnhub.io/api/v1/stock/symbol?exchange=US&token={api_key}"
@@ -26,14 +22,14 @@ def fetch_us_tickers_from_finnhub(api_key=None, cache_path=FINNHUB_TICKER_CACHE,
 
     raw_data = r.json()
 
-    # Filter to get valid, non-penny stock tickers
-    tickers = [
-        s["symbol"]
+    # Filter to get valid, non-penny stock tickers and map ticker -> company name
+    tickers_dict = {
+        s["symbol"]: s.get("description", "")
         for s in raw_data
         if "." not in s["symbol"] and s.get("type") in ["Common Stock", "ADR"]
-    ]
+    }
+    ticker_cache.add("tickers",tickers_dict)
+    ticker_cache._save_cache()
 
-    with open(cache_path, "w") as f:
-        json.dump({"timestamp": datetime.utcnow().isoformat(), "tickers": tickers}, f)
+    return tickers_dict
 
-    return tickers

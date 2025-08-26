@@ -4,7 +4,7 @@ from strategy.buy import OptionBuyStrategy
 from strategy.sentiment import SectorSentimentStrategy
 from services.etrade_consumer import EtradeConsumer
 from services.alerts import send_alert
-from services.scanner_utils import get_active_tickers,load_positions,add_to_positions,save_positions
+from services.scanner_utils import get_active_tickers
 from queue import Queue
 from services.utils import AddMessage 
 
@@ -22,20 +22,20 @@ def run_buy_scan(mode:str,consumer: EtradeConsumer,messageQueue: Queue = None, d
         ignore_cache = IgnoreTickerCache()
         bought_cache = BoughtTickerCache()
         tickers = get_active_tickers()
-        currentPositions = load_positions("current_positions")
         AddMessage(f"Starting Buy Scanner | Tickers: {len(tickers)}",messageQueue)
         
         successCount = 0
         context = {"exposure": consumer.get_open_exposure()}
         for ticker in tickers:
             try:
-                if ignore_cache.should_ignore(ticker):
+                if ignore_cache.is_cached(ticker):
                     continue   
-                if bought_cache.should_skip(ticker):
+                if bought_cache.is_cached(ticker):
                     continue 
                 options,hasOptions = consumer.get_option_chain(ticker)
                 if not hasOptions:
-                    ignore_cache.mark(ticker)
+                    ignore_cache.add(ticker,"")
+                    continue
                     
                 for opt_obj in options:
                     opt = OptionContract(**opt_obj)
@@ -60,7 +60,6 @@ def run_buy_scan(mode:str,consumer: EtradeConsumer,messageQueue: Queue = None, d
                             continue 
                         successCount += 1
                         msg = f"BUY: {ticker} → {opt.display}/Ask: {opt.ask*100}{FailureReason}"
-                        add_to_positions(ticker,opt,currentPositions)
                         
                         #Only send cheap ones to text
                         if (opt.ask * 100 < 50):
@@ -69,7 +68,6 @@ def run_buy_scan(mode:str,consumer: EtradeConsumer,messageQueue: Queue = None, d
             except Exception as e:
                 AddMessage(f"[Scanner-buy-error] {ticker}: {e}",messageQueue)
         AddMessage("Buy Scanner Completed",messageQueue)
-        save_positions("current_positions",currentPositions)
     except Exception as e:
         AddMessage(f"Error in Buy Scanner: {e}", messageQueue)
             

@@ -8,10 +8,10 @@ class OptionSellStrategy(SellStrategy):
     name = "Options"
     
     def should_sell(self,position):
-        if position["Product"]["securityType"] != "OPTN":
+        if position.Product["securityType"] != "OPTN":
             return False,"Not an option" 
-        if position["totalGain"] > 20 or position["daysGainPct"] > 30:
-            return True, f"Gain: {position["totalGain"]} and Pct: {position["totalGainPct"]}"
+        if position.totalGain > 20 or position.totalGainPct > 30:
+            return True, f"Gain: {position.totalGain} and Pct: {position.totalGainPct}"
         return False,"Insufficient Gain"
 
 class StopLossStrategy(SellStrategy):

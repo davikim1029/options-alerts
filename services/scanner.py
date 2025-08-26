@@ -1,11 +1,13 @@
 # scanner.py
 from services.buy_scanner import run_buy_scan
 from services.etrade_consumer import EtradeConsumer
+from models.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache
 from services.sell_scanner import run_sell_scan
 from services.api_worker import ApiWorker
 from threading import Thread
 import queue
 import time
+
 
 input_processor_queue = queue.Queue()
 user_input_queue = queue.Queue()
@@ -13,28 +15,30 @@ error_queue = queue.Queue()
 
 
 BUY_INTERVAL_SECONDS = 300
-SELL_INTERVAL_SECONDS = 300
+SELL_INTERVAL_SECONDS = 300*6 #300 secs is 5 mins
 
 
 def run_scan(mode:str, consumer:EtradeConsumer,debug:bool = False):
         
+    news_cache = NewsApiCache()
+    rate_cache = RateLimitCache()
     api_worker = ApiWorker(consumer.session,2)
     consumer.apiWorker = api_worker
     
     # Start worker to listen for input
-    Thread(target=input_listener, daemon=True).start()
+    Thread(name="Input Listener Thread",target=input_listener, daemon=True).start()
 
     # Start worker to handle the input
-    Thread(target=input_processor, daemon=True).start()
+    Thread(name="Input Processor Thread" ,target=input_processor, daemon=True).start()
     
     try:
-        buy_thread = _start_buy_loop(mode=mode,consumer=consumer,debug=debug)
+        buy_thread = _start_buy_loop(mode=mode,consumer=consumer,news_cache=news_cache,rate_cache = rate_cache,debug=debug)
     except Exception as e:
         print(f"[Scanner-buy-error] {e}")
 
     # SELL check loop
     try:
-        sell_thread = _start_sell_loop(mode=mode,consumer=consumer,debug=debug)
+        sell_thread = _start_sell_loop(mode=mode,consumer=consumer, news_cache=news_cache,rate_cache = rate_cache,debug=debug)
     except Exception as e:
         print(f"[Scanner-sell-error] {e}")
         
@@ -59,21 +63,37 @@ def run_scan(mode:str, consumer:EtradeConsumer,debug:bool = False):
 
 
 
-def _start_buy_loop(mode:str,consumer:EtradeConsumer, debug:bool = False):
+def _start_buy_loop(mode:str,consumer:EtradeConsumer, news_cache: NewsApiCache = None,rate_cache:RateLimitCache = None, debug:bool = False):
+    ignore_cache = IgnoreTickerCache()
+    bought_cache = BoughtTickerCache()
+    
+    if news_cache is None:
+        news_cache = NewsApiCache()
+        
+    if rate_cache is None:
+        rate_cache = RateLimitCache()
+        
     def buy_loop():
         while True:
-            run_buy_scan(mode=mode,consumer=consumer,messageQueue=error_queue, debug=debug)
+            run_buy_scan(mode=mode,consumer=consumer,ignore_cache=ignore_cache,bought_cache=bought_cache,news_cache=news_cache,rate_cache=rate_cache,messageQueue=error_queue,seconds_to_wait=BUY_INTERVAL_SECONDS, debug=debug)
             time.sleep(BUY_INTERVAL_SECONDS)
-    thread = Thread(target=buy_loop, daemon=True)
+    thread = Thread(name="Buy Scanner",target=buy_loop, daemon=True)
     thread.start()
     return thread
     
-def _start_sell_loop(mode:str,consumer:EtradeConsumer, debug:bool = False):
+def _start_sell_loop(mode:str,consumer:EtradeConsumer,news_cache: NewsApiCache = None,rate_cache:RateLimitCache = None, debug:bool = False):
+    
+    if news_cache is None:
+        news_cache = NewsApiCache()
+        
+    if rate_cache is None:
+        rate_cache = RateLimitCache()
+    
     def sell_loop():
         while True:
-            run_sell_scan(mode=mode,consumer=consumer, messageQueue=error_queue,debug = debug)
+            run_sell_scan(mode=mode,consumer=consumer, news_cache=news_cache,rate_cache=rate_cache, messageQueue=error_queue, seconds_to_wait=SELL_INTERVAL_SECONDS,debug = debug)
             time.sleep(SELL_INTERVAL_SECONDS)
-    thread = Thread(target=sell_loop, daemon=True)
+    thread = Thread(name="Sell Scanner",target=sell_loop, daemon=True)
     thread.start()
     return thread
     

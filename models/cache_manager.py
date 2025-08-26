@@ -64,7 +64,7 @@ class CacheManager:
             while True:
                 time.sleep(self._interim_save_seconds)
                 self._save_cache()
-        thread = Thread(target=save_loop, daemon=True)
+        thread = Thread(name=f"{self._display_name}_AutoSave", target=save_loop, daemon=True)
         thread.start()
         
     def is_empty(self) -> bool:
@@ -162,12 +162,3 @@ class TickerCache(CacheManager):
             AUTO_SAVE=False
         )
         
-class PositionCache(CacheManager):
-    def __init__(self):
-        POSITION_CACHE_FILE = "cache/positions.json"
-        POSITION_CACHE_HOURS = 1
-        super().__init__(
-            CACHE_DISPLAY_NAME="Positions Cache",
-            CACHE_FILE=POSITION_CACHE_FILE,
-            CACHE_TTL_HOURS=POSITION_CACHE_HOURS,
-        )

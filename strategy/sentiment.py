@@ -8,7 +8,7 @@ from transformers import pipeline
 import os
 from services.news_aggregator import aggregate_headlines_smart
 from models.generated.Position import Position
-from models.cache_manager import NewsApiCache
+from models.cache_manager import NewsApiCache,RateLimitCache
 from typing import Optional,Union
 
 MAX_LEN = 250  # trim text before passing to model
@@ -31,8 +31,9 @@ ETF_LOOKUP = {
 
 class SectorSentimentStrategy(BuyStrategy,SellStrategy):
     
-    def __init__(self):
-        self._news_cache:NewsApiCache = NewsApiCache()
+    def __init__(self, news_cache:NewsApiCache, rate_cache:RateLimitCache ):
+        self._news_cache = news_cache
+        self._rate_cache = rate_cache
     
     """
     Combines buy and sell sentiment logic for options based on sector ETF trend
@@ -48,7 +49,7 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
         return self._evaluate(option, side="buy")
 
     # === SELL LOGIC ===
-    def should_sell(self, position: Position, context: dict) -> tuple[bool, str]:
+    def should_sell(self, position: Position) -> tuple[bool, str]:
         return self._evaluate(position, side="sell")
 
     # === INTERNAL COMMON LOGIC ===
@@ -80,7 +81,7 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
             if self._news_cache.is_cached(symbol):
                 headlines,avg_sent = self.get_cached_info(symbol)
             else:
-                headlines = aggregate_headlines_smart(symbol)
+                headlines = aggregate_headlines_smart(symbol,self._rate_cache)
                 if headlines == []:
                     error = f"[SectorSentiment:{side}] No Headline data found"
                     return False,error 

@@ -7,6 +7,7 @@ from typing import Optional, List
 class Product:
     symbol: Optional[str] = None
     securityType: Optional[str] = None
+    callPut: Optional[str] = None
     expiryYear: Optional[int] = None
     expiryMonth: Optional[int] = None
     expiryDay: Optional[int] = None

@@ -3,9 +3,8 @@ import os
 import json
 from models.dataClassCreator import generate_dataclass
 from services.utils import from_dict
-from models.generated.Account import Account
+from models.generated.Account import Account, PortfolioAccount
 from models.generated.Position import Position
-from models.cache_manager import PositionCache
 from datetime import datetime, timezone,timedelta
 from cryptography.fernet import Fernet
 from requests_oauthlib import OAuth1Session
@@ -18,7 +17,6 @@ import time
 class EtradeConsumer:
     def __init__(self,apiWorker:ApiWorker = None, sandbox=True, debug=False):
         self.debug = debug
-        self.position_cache = PositionCache()
         self.sandbox = sandbox
         self.apiWorker = apiWorker
         if sandbox:
@@ -278,7 +276,11 @@ class EtradeConsumer:
         r = self.get(url)  # ✅ Use authenticated session
         try:
             accts = r.json().get("AccountListResponse").get("Accounts",[]).get("Account")
-            return accts
+            accounts = []
+            for acct in accts:
+                account = Account(**acct)
+                accounts.append(account)
+            return accounts
         except Exception as e:
             print(f"[ERROR] Failed to parse account ID: {e}")
             return None
@@ -286,24 +288,21 @@ class EtradeConsumer:
 
 
     def get_positions(self):
-        if self.position_cache.is_cached("positions"):
-            return self.position_cache.get("positions")
         accts = self.get_accounts()
         positions = []
         for idx,acct in enumerate(accts):
-            acct_id = acct['accountId']
-            acct_id_key = acct["accountIdKey"]
+            acct_id = acct.accountId
+            acct_id_key = acct.accountIdKey
             url = f"{self.base_url}/v1/accounts/{acct_id_key}/portfolio.json"
             r = self.get(url)
             data = r.json()
 
-            accounts = data.get("PortfolioResponse", {}).get("AccountPortfolio", [])
-            for acct in accounts:
+            accounts_raw = data.get("PortfolioResponse").get("AccountPortfolio")
+            for acct_raw in accounts_raw:
+                acct = PortfolioAccount.from_dict(acct_raw)
                 #generate_dataclass(data=acct, name="Account", prepend_parent=False, nested_in_file=False)
-                for pos in acct["Position"]:                
-                    positions.append(pos)
+                positions.extend(acct.Position)        
 
-        self.position_cache.add("positions",positions)
         return positions
 
     def get_greeks(self, option_symbol):
@@ -335,7 +334,7 @@ class EtradeConsumer:
     def get_open_exposure(self):
         positions = self.get_positions()
         if positions is not None:
-            return sum(p["totalCost"] for p in positions)
+            return sum(p.totalCost for p in positions)
         return None
     
     #Load password for notifications         

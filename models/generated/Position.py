@@ -7,6 +7,7 @@ from typing import Optional, List
 @dataclass
 class Position:
     positionId: Optional[int] = None
+    osiKey: Optional[str] = None
     symbolDescription: Optional[str] = None
     dateAcquired: Optional[int] = None
     pricePaid: Optional[float] = None

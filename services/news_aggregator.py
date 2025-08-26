@@ -151,9 +151,10 @@ class GoogleNewsClient(NewsClient):
 # --------------------------
 # Smart Aggregator
 # --------------------------
-def aggregate_headlines_smart(ticker: str) -> List[Dict]:
+def aggregate_headlines_smart(ticker: str, rate_cache:RateLimitCache = None) -> List[Dict]:
     
-    rate_cache = RateLimitCache()
+    if rate_cache is None:
+        rate_cache = RateLimitCache()
     
     sources_priority = [
         ("NewsAPI", NewsAPIClient(rate_cache=rate_cache), True),

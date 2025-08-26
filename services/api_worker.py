@@ -15,7 +15,7 @@ class ApiWorker:
         self.session = session
         self._queue = queue.Queue()
         self._min_interval = min_interval
-        self._thread = threading.Thread(target=self._worker, daemon=True)
+        self._thread = threading.Thread(name="HTTP Worker", target=self._worker, daemon=True)
         self._thread.start()
 
     def _worker(self):

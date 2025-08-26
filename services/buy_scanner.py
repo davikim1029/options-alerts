@@ -1,5 +1,5 @@
 from models.option import OptionContract
-from models.cache_manager import IgnoreTickerCache,BoughtTickerCache
+from models.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache
 from strategy.buy import OptionBuyStrategy
 from strategy.sentiment import SectorSentimentStrategy
 from services.etrade_consumer import EtradeConsumer
@@ -7,20 +7,26 @@ from services.alerts import send_alert
 from services.scanner_utils import get_active_tickers
 from queue import Queue
 from services.utils import AddMessage 
+from services.scanner_utils import get_next_run_date
 
-buy_strategies = {
-    "Primary": [    
-        OptionBuyStrategy(),
-        ],
-    "Secondary": [
-        SectorSentimentStrategy(), 
-    ]
-}
 
-def run_buy_scan(mode:str,consumer: EtradeConsumer,messageQueue: Queue = None, debug:bool = False):
+
+def run_buy_scan(mode:str,consumer: EtradeConsumer,ignore_cache:IgnoreTickerCache = None,bought_cache:BoughtTickerCache = None,news_cache:NewsApiCache = None,rate_cache:RateLimitCache = None,messageQueue: Queue = None, seconds_to_wait: int= 0, debug:bool = False):
+    
+    buy_strategies = {
+        "Primary": [    
+            OptionBuyStrategy(),
+            ],
+        "Secondary": [
+            SectorSentimentStrategy(news_cache=news_cache,rate_cache=rate_cache), 
+        ]
+    }
+    
     try:
-        ignore_cache = IgnoreTickerCache()
-        bought_cache = BoughtTickerCache()
+        if ignore_cache is None:
+            ignore_cache = IgnoreTickerCache()
+        if bought_cache is None: 
+            bought_cache = BoughtTickerCache()
         tickers = get_active_tickers()
         AddMessage(f"Starting Buy Scanner | Tickers: {len(tickers)}",messageQueue)
         
@@ -67,7 +73,7 @@ def run_buy_scan(mode:str,consumer: EtradeConsumer,messageQueue: Queue = None, d
 
             except Exception as e:
                 AddMessage(f"[Scanner-buy-error] {ticker}: {e}",messageQueue)
-        AddMessage("Buy Scanner Completed",messageQueue)
+        AddMessage(f"Buy Scanner Completed. Will start again at {get_next_run_date(seconds_to_wait)}",messageQueue)
     except Exception as e:
         AddMessage(f"Error in Buy Scanner: {e}", messageQueue)
             

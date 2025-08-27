@@ -4,7 +4,7 @@ import argparse
 from dotenv import load_dotenv
 from services.apitest import run_api_test
 from services.scanner import run_scan
-from services.etrade_consumer import EtradeConsumer
+from services.etrade_consumer import EtradeConsumer,refresh_token
 from services.news_aggregator import aggregate_headlines_smart
 from strategy.sentiment import SectorSentimentStrategy
 from services.scanner_utils import get_active_tickers
@@ -18,6 +18,7 @@ os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 def get_mode_from_prompt():
     modes = [
         ("scan", "Run scanner (alerts only)"),
+        ("refresh-token","Refresh the Etrade token"),
         ("test-api", "Interactive test of E*TRADE API functions"),
         ("encrypt-etrade", "Encrypt Etrade Key And Secret"),
         ("test-newsapi","Hit a NewsApi Api"),
@@ -58,18 +59,23 @@ def main():
 
         # Convert sandbox argument to boolean
         if args.sandbox is not None:
-            useSandbox = args.sandbox.lower() in ["true", "1", "yes"]            
+            useSandbox = args.sandbox.lower() in ["true", "1", "yes"] 
         else:
-            useSandbox = get_boolean_input("Run in Sandbox mode? (Default is False)")  # defaults False if Enter
-
+            useSandbox = False           
+            
         if args.web_browser is not None:
             open_browser = args.web_browser.lower() in ["true", "1","yes"]
+        else:
+            open_browser = True
 
 
         if mode in ["scan"]:
-            print(f"Open Browser: {open_browser}")
             consumer = EtradeConsumer(sandbox=useSandbox,open_browser=open_browser,debug=debug)
             run_scan(mode=mode, consumer=consumer,debug=debug)
+            
+        elif mode in ["refresh-token"]:
+            refresh_token()
+            
 
         elif mode == "test-api":
             consumer = EtradeConsumer(sandbox=useSandbox)

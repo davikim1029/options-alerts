@@ -397,3 +397,150 @@ class EtradeConsumer:
         now = datetime.now(timezone.utc)
         return (now - ts) > timedelta(seconds=max_age_seconds)
 
+
+
+
+def refresh_token():
+    
+    def load_encrypted_etrade_keysecret():
+        with open("encryption/secret.key", "rb") as key_file:
+            key = key_file.read()
+
+        sandbox_suffix = "prod"
+
+        with open(f"encryption/etrade_consumer_key_{sandbox_suffix}.enc", "rb") as enc_file:
+            encrypted_key = enc_file.read()
+        
+        fernet = Fernet(key)
+        etrade_key=fernet.decrypt(encrypted_key).decode()
+        
+        with open(f"encryption/etrade_consumer_secret_{sandbox_suffix}.enc", "rb") as enc_file:
+            encrypted_secret = enc_file.read()
+
+        etrade_secret=fernet.decrypt(encrypted_secret).decode()
+        return etrade_key,etrade_secret
+    
+    data_dict = {}
+    data_dict["session"] = None
+    data_dict["token_file"] = os.path.join("models", f"etrade_tokens_prod.json")
+    data_dict["consumer_key"],data_dict["consumer_secret"] = load_encrypted_etrade_keysecret()
+    data_dict["oauth_token"] = ""
+    data_dict["oauth_token_secret"] = ""
+    data_dict["base_url"] = "https://api.etrade.com"
+    
+    def save_tokens():
+        with open(data_dict["token_file"], "w") as f:
+            json.dump({
+                "oauth_token": data_dict["oauth_token"],
+                "oauth_token_secret": data_dict["oauth_token_secret"]
+            }, f)
+        
+    def generate_token(open_browser: bool = True, redirect_url: str = None):
+        """
+        Initiates the OAuth 1.0a flow and fetches the access token for authenticated API usage.
+
+        Args:
+            open_browser (bool): Whether to automatically open the auth URL in the web browser.
+            redirect_url (str): Optional redirect URI if you're running a local callback server.
+
+        Returns:
+            bool: True if token was successfully generated, False otherwise.
+        """
+        try:
+            request_token_url = f"{data_dict["base_url"]}/oauth/request_token"
+            oauth = OAuth1Session(data_dict["consumer_key"], client_secret=data_dict["consumer_secret"], callback_uri="oob")
+            fetch_response = oauth.fetch_request_token(request_token_url)
+
+            resource_owner_key = fetch_response.get("oauth_token")
+            resource_owner_secret = fetch_response.get("oauth_token_secret")
+            
+            # Step 2: build the E*TRADE-specific authorize URL
+            authorize_base = "https://us.etrade.com/e/t/etws/authorize"
+            params = {"key": data_dict["consumer_key"], "token": resource_owner_key}
+            authorization_url = f"{authorize_base}?{urlencode(params)}"
+            print("Please go to the following URL to authorize access:")
+            print(authorization_url)
+            if open_browser:
+                webbrowser.open(authorization_url)
+
+            verifier = input("Paste the verifier code here: ")
+
+            access_token_url = f"{data_dict["base_url"]}/oauth/access_token"
+            oauth = OAuth1Session(
+                data_dict["consumer_key"],
+                client_secret=data_dict["consumer_secret"],
+                resource_owner_key=resource_owner_key,
+                resource_owner_secret=resource_owner_secret,
+                verifier=verifier
+            )
+            token_response = oauth.fetch_access_token(access_token_url)
+
+            oauth_token = token_response.get("oauth_token")
+            data_dict["oauth_token"] = oauth_token
+            oauth_token_secret = token_response.get("oauth_token_secret")
+            data_dict["oauth_token_secret"] = oauth_token_secret
+
+            data_dict["session"] = OAuth1Session(
+                data_dict["consumer_key"],
+                client_secret=data_dict["consumer_secret"],
+                resource_owner_key=oauth_token,
+                resource_owner_secret=oauth_token_secret,
+            )
+            print("Access token obtained successfully.")
+            save_tokens()
+            return True
+        except Exception as e:
+            print(f"[ERROR] Failed to generate token: {e}")
+            return False
+        
+        
+    def _validate_tokens(open_browser=True):
+        try:
+            url = f"{data_dict["base_url"]}/v1/accounts/list.json"
+            r = data_dict["session"].get(url)
+
+            status_code = r.status_code
+            if status_code == 200:
+                return True
+            elif status_code == 401:
+            
+                # Invalidate and regenerate
+                print("[Token Validation] Deleting invalid token file and re-authenticating...")
+                if os.path.exists(data_dict["token_file"]):
+                    os.remove(data_dict["token_file"])
+
+                #self.consumer_secret = self.load_or_create_encrypted_secret()  # Just to be sure it's loaded
+                return generate_token()
+            else:
+                 print(f"[Token Validation] Failed with status: {r.text}")
+                 
+        except Exception as e:
+            print(f"[Token Validation] Exception: {e}")
+            if os.path.exists(data_dict["token_file"]):
+                os.remove(data_dict["token_file"])
+            return generate_token(open_browser=open_browser)          
+     
+           
+    def load_tokens(open_browser):
+        with open(data_dict["token_file"], "r") as f:
+            token_data = json.load(f)
+
+        oauth_token = token_data.get("oauth_token")
+        data_dict["oauth_token"] = oauth_token
+        
+        oauth_token_secret = token_data.get("oauth_token_secret")
+        data_dict["oauth_token_secret"] = oauth_token_secret
+
+        data_dict["session"] = OAuth1Session(
+            data_dict["consumer_key"],
+            client_secret=data_dict["consumer_secret"],
+            resource_owner_key=oauth_token,
+            resource_owner_secret=oauth_token_secret
+        )
+
+        # Validate and re-auth if needed
+        if not _validate_tokens(open_browser=open_browser):
+            raise Exception("Failed to authenticate after token validation.")
+            
+    load_tokens(False)
+        

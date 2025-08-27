@@ -62,7 +62,7 @@ def run_sell_scan(mode: str, consumer: EtradeConsumer, news_cache:NewsApiCache =
                     # Build alert message
                     gainPct = pos.totalGainPct
                     gain = pos.totalGain
-                    msg = f"SELL: {pos.Product["symbol"]} → {pos.symbolDescription} | Gain: {gain}/Gain Pct:{gainPct}{failure_reasons}"
+                    msg = f"SELL: {pos.Product['symbol']} → {pos.symbolDescription} | Gain: {gain}/Gain Pct:{gainPct}{failure_reasons}"
 
                     # Send alert
                     send_alert(msg)

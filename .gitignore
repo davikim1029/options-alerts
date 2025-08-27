@@ -6,3 +6,4 @@ cache/
 .DS_Store
 models/.DS_Store
 models/etrade_tokens*
+models/etrade_tokens_prod.json

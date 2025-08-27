@@ -15,7 +15,7 @@ from dacite import from_dict, Config
 import time
 
 class EtradeConsumer:
-    def __init__(self,apiWorker:ApiWorker = None, sandbox=True, debug=False):
+    def __init__(self,apiWorker:ApiWorker = None,open_browser = True, sandbox=True, debug=False):
         self.debug = debug
         self.sandbox = sandbox
         self.apiWorker = apiWorker
@@ -33,10 +33,10 @@ class EtradeConsumer:
         if not os.path.exists(self.token_file):
             print("🔑 No token file found. Starting OAuth...")
             #self.consumer_secret = self.load_or_create_encrypted_secret()
-            if not self.generate_token():
+            if not self.generate_token(open_browser=open_browser):
                 raise Exception("Failed to generate access token.")
         else:
-            self.load_tokens()
+            self.load_tokens(open_browser=open_browser)
        
             
     def get(self,url:str,headers = None,params = None):
@@ -77,7 +77,7 @@ class EtradeConsumer:
             return self.session.put(url,headers,params=params)
 
             
-    def load_tokens(self):
+    def load_tokens(self, open_browser):
         with open(self.token_file, "r") as f:
             token_data = json.load(f)
 
@@ -92,11 +92,11 @@ class EtradeConsumer:
         )
 
         # Validate and re-auth if needed
-        if not self._validate_tokens():
+        if not self._validate_tokens(open_browser=open_browser):
             raise Exception("Failed to authenticate after token validation.")
 
 
-    def _validate_tokens(self):
+    def _validate_tokens(self,open_browser=True):
         try:
             url = f"{self.base_url}/v1/accounts/list.json"
             r = self.get(url)
@@ -123,7 +123,7 @@ class EtradeConsumer:
             print(f"[Token Validation] Exception: {e}")
             if os.path.exists(self.token_file):
                 os.remove(self.token_file)
-            return self.generate_token()
+            return self.generate_token(open_browser=open_browser)
 
 
 

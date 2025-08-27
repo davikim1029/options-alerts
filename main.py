@@ -12,6 +12,9 @@ from encryption.encryptItems import encryptEtradeKeySecret
 import json
 from services.utils import get_boolean_input
 
+os.environ["CUDA_VISIBLE_DEVICES"] = ""        # disable CUDA
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
 def get_mode_from_prompt():
     modes = [
         ("scan", "Run scanner (alerts only)"),
@@ -42,6 +45,7 @@ def main():
     parser = argparse.ArgumentParser(description="OptionsAlerts CLI")
     parser.add_argument("--mode", help="Mode to run")
     parser.add_argument("--sandbox", type=str, help="Use Sandbox credentials? true/false")
+    parser.add_argument("--web_browser", type=str, help="Launch browser for auth if necessary")
     args = parser.parse_args()
     
     while True:
@@ -54,12 +58,17 @@ def main():
 
         # Convert sandbox argument to boolean
         if args.sandbox is not None:
-            useSandbox = args.sandbox.lower() in ["true", "1", "yes"]
+            useSandbox = args.sandbox.lower() in ["true", "1", "yes"]            
         else:
             useSandbox = get_boolean_input("Run in Sandbox mode? (Default is False)")  # defaults False if Enter
 
+        if args.web_browser is not None:
+            open_browser = args.web_browser.lower() in ["true", "1","yes"]
+
+
         if mode in ["scan"]:
-            consumer = EtradeConsumer(sandbox=useSandbox,debug=debug)
+            print(f"Open Browser: {open_browser}")
+            consumer = EtradeConsumer(sandbox=useSandbox,open_browser=open_browser,debug=debug)
             run_scan(mode=mode, consumer=consumer,debug=debug)
 
         elif mode == "test-api":

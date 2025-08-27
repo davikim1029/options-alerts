@@ -447,7 +447,7 @@ def refresh_token():
             bool: True if token was successfully generated, False otherwise.
         """
         try:
-            request_token_url = f"{data_dict["base_url"]}/oauth/request_token"
+            request_token_url = f"{data_dict['base_url']}/oauth/request_token"
             oauth = OAuth1Session(data_dict["consumer_key"], client_secret=data_dict["consumer_secret"], callback_uri="oob")
             fetch_response = oauth.fetch_request_token(request_token_url)
 
@@ -465,7 +465,7 @@ def refresh_token():
 
             verifier = input("Paste the verifier code here: ")
 
-            access_token_url = f"{data_dict["base_url"]}/oauth/access_token"
+            access_token_url = f"{data_dict['base_url']}/oauth/access_token"
             oauth = OAuth1Session(
                 data_dict["consumer_key"],
                 client_secret=data_dict["consumer_secret"],
@@ -496,7 +496,7 @@ def refresh_token():
         
     def _validate_tokens(open_browser=True):
         try:
-            url = f"{data_dict["base_url"]}/v1/accounts/list.json"
+            url = f"{data_dict['base_url']}/v1/accounts/list.json"
             r = data_dict["session"].get(url)
 
             status_code = r.status_code

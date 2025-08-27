@@ -43,7 +43,7 @@ class TimeDecayStrategy(SellStrategy):
 
     def should_sell(self, position):
         days_held = getattr(position, "daysHeld", 0)
-
+        max_days = 14
         if days_held > 15:
             return False, f"Held {days_held} days (> {max_days})"
         return True, ""

@@ -22,7 +22,7 @@ class CacheManager:
         ShutdownManager.init()
         # Register this cache's save method to run on shutdown
         
-        ShutdownManager.register(self._save_cache)
+        ShutdownManager.register(lambda reason=None: self._save_cache())
         self._display_name:str = CACHE_DISPLAY_NAME
         self._cache_file:str = CACHE_FILE
         self._cache_ttl_days:int = CACHE_TTL_DAYS

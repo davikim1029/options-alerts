@@ -1,5 +1,4 @@
 schedule
-yfinance
 requests
 python-dotenv
 cryptography
@@ -13,3 +12,4 @@ pydantic
 prompt_toolkit
 feedparser
 dacite
+yfinance<0.2.65

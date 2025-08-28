@@ -58,7 +58,7 @@ class EtradeConsumer:
                         print(f"Error: {error}")
                         
                 except Exception as e:
-                    print(f"Error parsing error: {e}")
+                    print(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")
                     
                 return None
             

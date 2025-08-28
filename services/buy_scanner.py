@@ -42,7 +42,6 @@ def run_buy_scan(mode:str,consumer: EtradeConsumer,
         tickers = get_active_tickers(ticker_cache=ticker_cache)
         AddMessage(f"Starting Buy Scanner | Tickers: {len(tickers)}",messageQueue)
         
-        successCount = 0
         context = {"exposure": consumer.get_open_exposure()}
         for ticker in tickers:
             try:
@@ -61,32 +60,47 @@ def run_buy_scan(mode:str,consumer: EtradeConsumer,
                 for opt_obj in options:
                     opt = OptionContract(**opt_obj)
                     should_buy = True
+                    evalResult = {}
                     FailureReason = ""
                     for primaryStrategy in buy_strategies.get("Primary"):
                         primStrategySuccess,error = primaryStrategy.should_buy(opt, context)
                         if not primStrategySuccess:
                             should_buy = False
+                            evalResult["PrimaryStrategy",primaryStrategy.name,"Result"]=False
+                            evalResult["PrimaryStrategy",primaryStrategy.name,"Message"]=error
                             if debug:
                                 AddMessage(f"{opt.display} fails {primaryStrategy.name} for reason: {error}",messageQueue)
+                        else:
+                            evalResult["PrimaryStrategy",primaryStrategy.name,"Result"]=True
+                            evalResult["PrimaryStrategy",primaryStrategy.name,"Message"]="Passed"
                     if should_buy:
-                        FailureReason = ""
+                        SecondaryFailure = ""
                         for secondaryStrategy in buy_strategies.get("Secondary"):
                             secStrategySuccess,error = secondaryStrategy.should_buy(opt, context)
                             if not secStrategySuccess:
-                                if FailureReason == "":
-                                    FailureReason = f" | Secondary Failure Reason(s): {error}"
+                                evalResult["SecondaryStrategy",secondaryStrategy.name,"Result"]=False
+                                evalResult["SecondaryStrategy",secondaryStrategy.name,"Message"]=error
+                                
+                                if SecondaryFailure == "":
+                                    SecondaryFailure = f" | Secondary Failure Reason(s): {error}"
                                 else: 
-                                    FailureReason += f", {error}"
-                        if FailureReason != "":
+                                    SecondaryFailure += f", {error}"
+                            else:
+                                evalResult["SecondaryStrategy",secondaryStrategy.name,"Result"]=True
+                                evalResult["SecondaryStrategy",secondaryStrategy.name,"Message"]="Passed"
+                        if SecondaryFailure != "":
                             continue 
-                        successCount += 1
-                        msg = f"BUY: {ticker} → {opt.display}/Ask: {opt.ask*100}{FailureReason}"
                         
                         #Only send cheap ones to text
                         if (opt.ask * 100 < 50):
+                            msg = f"BUY: {ticker} → {opt.display}/Ask: {opt.ask*100}{SecondaryFailure}"
                             send_alert(msg)
+                    
+                    else:
+                        evalResult["SecondaryStrategy","N/A","Result"]=False
+                        evalResult["SecondaryStrategy","N/A","Message"]="Secondary Strategies not run due to primary. failure."
                             
-                    eval_cache.add(ticker,"")
+                    eval_cache.add(ticker,evalResult)
 
             except Exception as e:
                 AddMessage(f"[Scanner-buy-error] {ticker}: {e}",messageQueue)

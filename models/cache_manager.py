@@ -85,12 +85,15 @@ class CacheManager:
                     return True
             return False
     
-    def add(self, key:str, value):
+    def add(self, key: str, value):
         with self._lock:
-            self._cache[key] = {"Value": value, "Timestamp": datetime.now(timezone.utc)}
+            nested_value = {
+                "Value": self.tuples_to_nested_dict(value),
+                "Timestamp": datetime.now(timezone.utc)
+            }
+            self._cache[key] = nested_value
             
     def get(self, key: str):
-        """Return the cached value if fresh, else None."""
         if self.is_cached(key):
             return self._cache[key]["Value"]
         return None
@@ -99,6 +102,28 @@ class CacheManager:
         with self._lock:
             self._cache.clear()
             self._save_cache()
+            
+    def tuples_to_nested_dict(self,d):
+        nested = {}
+        for key, value in d.items():
+            if not isinstance(key, tuple):
+                # simple key, keep as is
+                nested[key] = value
+                continue
+
+            current = nested
+            for k in key[:-1]:  # traverse/create intermediate dicts
+                current = current.setdefault(k, {})
+            current[key[-1]] = value
+        return nested
+
+            
+    def maybe_convert_tuples(self,value):
+        if isinstance(value, dict) and any(isinstance(k, tuple) for k in value.keys()):
+            return self.tuples_to_nested_dict(value)
+        return value
+
+
         
 
 class IgnoreTickerCache(CacheManager):

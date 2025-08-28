@@ -9,7 +9,6 @@ from services.news_aggregator import aggregate_headlines_smart
 from strategy.sentiment import SectorSentimentStrategy
 from services.scanner_utils import get_active_tickers
 from encryption.encryptItems import encryptEtradeKeySecret
-import json
 from services.utils import get_boolean_input
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""        # disable CUDA

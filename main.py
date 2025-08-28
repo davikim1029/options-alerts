@@ -42,6 +42,7 @@ def get_mode_from_prompt():
     return "scan"
 
 def main():
+    os.makedirs("cache", exist_ok=True)
     load_dotenv()
     parser = argparse.ArgumentParser(description="OptionsAlerts CLI")
     parser.add_argument("--mode", help="Mode to run")

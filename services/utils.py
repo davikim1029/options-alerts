@@ -5,6 +5,7 @@ import time
 from queue import Queue
 from dataclasses import is_dataclass, fields, is_dataclass
 from typing import get_type_hints, List, Optional, Union, TypeVar, Dict, Any, Type
+from collections import defaultdict
 
 
 def load_json_cache(file_path, max_age_seconds=86400):
@@ -116,3 +117,14 @@ def from_dict(cls: Type[T], data: Union[Dict[str, Any], List[Any]]) -> T:
 
     return cls(**init_values)
 
+
+def tree():
+    return defaultdict(tree)
+
+def tuple_keys_to_str(obj):
+    if isinstance(obj, dict):
+        return {str(k): tuple_keys_to_str(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [tuple_keys_to_str(i) for i in obj]
+    else:
+        return obj

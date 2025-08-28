@@ -162,3 +162,12 @@ class TickerCache(CacheManager):
             AUTO_SAVE=False
         )
         
+class EvalCache(CacheManager):
+    def __init__(self):
+        EVAL_CACHE_FILE = "cache/evaluated.json"
+        EVAL_CACHE_TTL_HOURS = 4
+        super().__init__(
+            CACHE_DISPLAY_NAME="Evaluated Cache",
+            CACHE_FILE=EVAL_CACHE_FILE,
+            CACHE_TTL_DAYS=EVAL_CACHE_TTL_HOURS,
+        )

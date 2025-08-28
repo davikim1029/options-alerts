@@ -9,6 +9,8 @@ from typing import Optional, List
 from services.utils import AddMessage 
 from services.scanner_utils import get_next_run_date
 from models.cache_manager import NewsApiCache,RateLimitCache
+from services.utils import logMessage
+
 import queue
 
 

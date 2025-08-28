@@ -2,16 +2,32 @@ import json
 import os
 from datetime import datetime,timedelta,timezone
 from threading import Thread, Lock
+from services.shutdown_handler import ShutdownManager
+from services.utils import logMessage
 import time
 
 
 class CacheManager:
-    def __init__(self,CACHE_DISPLAY_NAME:str,CACHE_FILE:str,CACHE_TTL_DAYS:float = None, CACHE_TTL_HOURS:float = None,INTERIM_SAVE_SECONDS:int = 60, AUTO_SAVE:bool = True):
+    def __init__(self,
+                 CACHE_DISPLAY_NAME:str,
+                 CACHE_FILE:str,
+                 CACHE_TTL_DAYS:float = None, 
+                 CACHE_TTL_HOURS:float = None,
+                 CACHE_TTL_MINS:float = None,
+                 INTERIM_SAVE_SECONDS:int = 60, 
+                 AUTO_SAVE:bool = True):
         self._cache = {}
+        
+        # Initialize shutdown manager once
+        ShutdownManager.init()
+        # Register this cache's save method to run on shutdown
+        
+        ShutdownManager.register(self._save_cache)
         self._display_name:str = CACHE_DISPLAY_NAME
         self._cache_file:str = CACHE_FILE
         self._cache_ttl_days:int = CACHE_TTL_DAYS
         self._cache_ttl_hours:float = CACHE_TTL_HOURS
+        self._cache_ttl_mins:float = CACHE_TTL_MINS
         self._interim_save_seconds:int = INTERIM_SAVE_SECONDS
         self._lock = Lock()  # thread-safety lock
         self._load_cache()
@@ -34,10 +50,10 @@ class CacheManager:
                         if not self.is_expired(ts):  # ✅ use is_expired instead
                             self._cache[key] = {"Value": value, "Timestamp": ts}
             except json.JSONDecodeError:
-                print(f"[{self._display_name}] cache file empty or corrupted, initializing empty cache")
+                logMessage(f"[{self._display_name}] cache file empty or corrupted, initializing empty cache")
                 self._cache = {}
             except Exception as e:
-                print(f"[{self._display_name}] failed to load cache: {e}")
+                logMessage(f"[{self._display_name}] failed to load cache: {e}")
         else:
             with open(self._cache_file, "w") as f:
                 json.dump({}, f)
@@ -55,7 +71,7 @@ class CacheManager:
             with open(self._cache_file, "w") as f:
                 json.dump(serializable_cache, f, indent=2, default=str)
         except Exception as e:
-            print(f"[{self._display_name}] failed to save cache: {e}")
+            logMessage(f"[{self._display_name}] failed to save cache: {e}")
 
     
     def _start_autosave(self):
@@ -82,23 +98,37 @@ class CacheManager:
                     return True
             return False
         
-    def is_expired(self,timestamp):
+    
+    def is_expired(self, timestamp):
+        # Default handling
+        days = self._cache_ttl_days
+        hours = self._cache_ttl_hours
+        mins = self._cache_ttl_mins
 
-        # Set defaults
-        if self._cache_ttl_days is None and self._cache_ttl_hours is None:
-            self._cache_ttl_days = 30
-            self._cache_ttl_hours = 0
-        elif self._cache_ttl_days is None:
-            self._cache_ttl_days = 0
-        elif self._cache_ttl_hours is None:
-            self._cache_ttl_hours = 0
+        if days is None and hours is None and mins is None:
+            # Case: no values provided → default to 30 days
+            days, hours, mins = 30, 0, 0
+        elif (days is not None or hours is not None):
+            # Case: days/hours provided
+            if days is None:
+                days = 0
+            if hours is None:
+                hours = 0
+            if mins is None:
+                mins = 0
+        else:
+            # Case: only mins provided
+            days = 0
+            hours = 0
+            mins = mins if mins is not None else 0
 
         # Compute TTL as timedelta
-        ttl = timedelta(days=self._cache_ttl_days, hours=self._cache_ttl_hours)
+        ttl = timedelta(days=days, hours=hours, minutes=mins)
 
         # Compare current time to timestamp
         now = datetime.now(timezone.utc)
         return now - timestamp > ttl
+
     
     def add(self, key: str, value):
         with self._lock:
@@ -205,9 +235,11 @@ class TickerCache(CacheManager):
 class EvalCache(CacheManager):
     def __init__(self):
         EVAL_CACHE_FILE = "cache/evaluated.json"
-        EVAL_CACHE_TTL_HOURS = 4
+        #EVAL_CACHE_TTL_HOURS = 4
+        EVAL_CACHE_TTL_MINS = 5
         super().__init__(
             CACHE_DISPLAY_NAME="Evaluated Cache",
             CACHE_FILE=EVAL_CACHE_FILE,
-            CACHE_TTL_HOURS=EVAL_CACHE_TTL_HOURS,
+            #CACHE_TTL_HOURS=EVAL_CACHE_TTL_HOURS,
+            CACHE_TTL_MINS=EVAL_CACHE_TTL_MINS
         )

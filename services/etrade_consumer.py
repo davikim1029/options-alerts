@@ -1,8 +1,6 @@
 # etrade_consumer.py
 import os
 import json
-from models.dataClassCreator import generate_dataclass
-from services.utils import from_dict
 from models.generated.Account import Account, PortfolioAccount
 from models.generated.Position import Position
 from datetime import datetime, timezone,timedelta
@@ -11,8 +9,7 @@ from requests_oauthlib import OAuth1Session
 from urllib.parse import urlencode
 import webbrowser
 from services.api_worker import ApiWorker,HttpMethod
-from dacite import from_dict, Config
-import time
+from services.utils import logMessage
 
 class EtradeConsumer:
     def __init__(self,apiWorker:ApiWorker = None,open_browser = True, sandbox=True, debug=False):
@@ -31,7 +28,7 @@ class EtradeConsumer:
             raise Exception("Missing E*TRADE consumer key")
 
         if not os.path.exists(self.token_file):
-            print("🔑 No token file found. Starting OAuth...")
+            logMessage("🔑 No token file found. Starting OAuth...")
             #self.consumer_secret = self.load_or_create_encrypted_secret()
             if not self.generate_token(open_browser=open_browser):
                 raise Exception("Failed to generate access token.")
@@ -50,15 +47,15 @@ class EtradeConsumer:
                     error_code = error["Error"]["code"]
                     if error_code == 10033:
                         symbol = params["symbol"]
-                        print(f"The symbol {symbol} is invalid for api: {url}")
+                        logMessage(f"The symbol {symbol} is invalid for api: {url}")
                     
                     #10031 means no options available for month
                     #10032 means no options available
                     elif (error_code != 10031 and error_code != 10032):
-                        print(f"Error: {error}")
+                        logMessage(f"Error: {error}")
                         
                 except Exception as e:
-                    print(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")
+                    logMessage(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")
                     
                 return None
             
@@ -72,7 +69,7 @@ class EtradeConsumer:
             if response["ok"]:
                 return response.data
             else:
-                print(f"Error {response.status_code}: {response.error} ")
+                logMessage(f"Error {response.status_code}: {response.error} ")
         else:
             return self.session.put(url,headers,params=params)
 
@@ -107,20 +104,20 @@ class EtradeConsumer:
             elif status_code == 401:
             
                 # Invalidate and regenerate
-                print("[Token Validation] Deleting invalid token file and re-authenticating...")
+                logMessage("[Token Validation] Deleting invalid token file and re-authenticating...")
                 if os.path.exists(self.token_file):
                     os.remove(self.token_file)
 
                 #self.consumer_secret = self.load_or_create_encrypted_secret()  # Just to be sure it's loaded
                 return self.generate_token()
             else:
-                 print(f"[Token Validation] Failed with status: {r.text}")
+                 logMessage(f"[Token Validation] Failed with status: {r.text}")
 
                 
 
 
         except Exception as e:
-            print(f"[Token Validation] Exception: {e}")
+            logMessage(f"[Token Validation] Exception: {e}")
             if os.path.exists(self.token_file):
                 os.remove(self.token_file)
             return self.generate_token(open_browser=open_browser)
@@ -150,8 +147,8 @@ class EtradeConsumer:
             authorize_base    = "https://us.etrade.com/e/t/etws/authorize"
             params = {"key": self.consumer_key, "token": resource_owner_key}
             authorization_url = f"{authorize_base}?{urlencode(params)}"
-            print("Please go to the following URL to authorize access:")
-            print(authorization_url)
+            logMessage("Please go to the following URL to authorize access:")
+            logMessage(authorization_url)
             if open_browser:
                 webbrowser.open(authorization_url)
 
@@ -176,11 +173,11 @@ class EtradeConsumer:
                 resource_owner_key=self.oauth_token,
                 resource_owner_secret=self.oauth_token_secret,
             )
-            print("Access token obtained successfully.")
+            logMessage("Access token obtained successfully.")
             self.save_tokens()
             return True
         except Exception as e:
-            print(f"[ERROR] Failed to generate token: {e}")
+            logMessage(f"[ERROR] Failed to generate token: {e}")
             return False
         
     def save_tokens(self):
@@ -282,7 +279,7 @@ class EtradeConsumer:
                 accounts.append(account)
             return accounts
         except Exception as e:
-            print(f"[ERROR] Failed to parse account ID: {e}")
+            logMessage(f"[ERROR] Failed to parse account ID: {e}")
             return None
 
 
@@ -458,8 +455,8 @@ def refresh_token():
             authorize_base = "https://us.etrade.com/e/t/etws/authorize"
             params = {"key": data_dict["consumer_key"], "token": resource_owner_key}
             authorization_url = f"{authorize_base}?{urlencode(params)}"
-            print("Please go to the following URL to authorize access:")
-            print(authorization_url)
+            logMessage("Please go to the following URL to authorize access:")
+            logMessage(authorization_url)
             if open_browser:
                 webbrowser.open(authorization_url)
 
@@ -486,11 +483,11 @@ def refresh_token():
                 resource_owner_key=oauth_token,
                 resource_owner_secret=oauth_token_secret,
             )
-            print("Access token obtained successfully.")
+            logMessage("Access token obtained successfully.")
             save_tokens()
             return True
         except Exception as e:
-            print(f"[ERROR] Failed to generate token: {e}")
+            logMessage(f"[ERROR] Failed to generate token: {e}")
             return False
         
         
@@ -505,17 +502,17 @@ def refresh_token():
             elif status_code == 401:
             
                 # Invalidate and regenerate
-                print("[Token Validation] Deleting invalid token file and re-authenticating...")
+                logMessage("[Token Validation] Deleting invalid token file and re-authenticating...")
                 if os.path.exists(data_dict["token_file"]):
                     os.remove(data_dict["token_file"])
 
                 #self.consumer_secret = self.load_or_create_encrypted_secret()  # Just to be sure it's loaded
                 return generate_token()
             else:
-                 print(f"[Token Validation] Failed with status: {r.text}")
+                 logMessage(f"[Token Validation] Failed with status: {r.text}")
                  
         except Exception as e:
-            print(f"[Token Validation] Exception: {e}")
+            logMessage(f"[Token Validation] Exception: {e}")
             if os.path.exists(data_dict["token_file"]):
                 os.remove(data_dict["token_file"])
             return generate_token(open_browser=open_browser)          

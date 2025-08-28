@@ -3,6 +3,7 @@ import requests
 import feedparser
 from models.cache_manager import RateLimitCache
 from typing import List, Dict, Optional
+from services.utils import logMessage
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
@@ -55,7 +56,7 @@ class NewsAPIClient(NewsClient):
         url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&sources={news_sources_str}"
         resp = requests.get(url, headers={"Authorization": f"Bearer {self.api_key}"})
         if resp.status_code == 429:
-            print("[NewsAPI] Rate limit hit")
+            logMessage("[NewsAPI] Rate limit hit")
             self.rate_cache.add(f"NewsAPI:{ticker}", 24*3600)  # reset daily
             return None
         if resp.status_code != 200:
@@ -90,7 +91,7 @@ class NewsDataClient(NewsClient):
         url = f"https://newsdata.io/api/1/news?apikey={self.api_key}&q={ticker}&language=en&category={categories_str}"
         resp = requests.get(url)
         if resp.status_code == 429:
-            print("[NewsData] Rate limit hit")
+            logMessage("[NewsData] Rate limit hit")
             self.rate_cache.add(f"NewsData:{ticker}", 3600)  # assume hourly reset
             return None
         if resp.status_code != 200:
@@ -170,7 +171,7 @@ def aggregate_headlines_smart(ticker: str, rate_cache:RateLimitCache = None) -> 
         try:
             articles = news_client.fetch(ticker)
         except Exception as e:
-            print(f"Error fetching news data: {e}")
+            logMessage(f"Error fetching news data: {e}")
             
         if articles:
             new_articles.extend(articles)

@@ -4,8 +4,8 @@ import os
 import time
 from queue import Queue
 from dataclasses import is_dataclass, fields, is_dataclass
-from typing import get_type_hints, List, Optional, Union, TypeVar, Dict, Any, Type
-from collections import defaultdict
+from typing import get_type_hints, List, Union, TypeVar, Dict, Any, Type
+from services.logger_singleton import logger
 
 
 def load_json_cache(file_path, max_age_seconds=86400):
@@ -54,7 +54,7 @@ def yes_no(prompt: str, defaultResponse: bool = True, defaultOnEnter:bool = True
 
 def AddMessage(msg: str, messageQueue: Queue):
     if messageQueue is None:
-        print(msg)
+        log(msg)
     else:
         messageQueue.put(msg)
 
@@ -116,3 +116,9 @@ def from_dict(cls: Type[T], data: Union[Dict[str, Any], List[Any]]) -> T:
             init_values[field_name] = value
 
     return cls(**init_values)
+
+
+def logMessage(message,printMessage:bool = True):
+    logger.log(message=message)
+    if printMessage:
+        print(message)

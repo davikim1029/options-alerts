@@ -39,9 +39,9 @@ def send_alert(message,debug:bool = False):
                 sms_msg['To'] = SMS_TO
                 server.send_message(sms_msg)
                 if debug:
-                    print(f"Text sent to {SMS_TO}")
+                    logMessage(f"Text sent to {SMS_TO}")
         except Exception as e:
-            print(e)
+            logMessage(e)
 
 def send_alert_alternate(message):
     to_number = os.getenv("SMS_TO")
@@ -51,7 +51,7 @@ def send_alert_alternate(message):
     smtp_pass = os.getenv("SMTP_PASSWORD")
 
     if not all([to_number, smtp_server, smtp_user, smtp_pass]):
-        print(f"[ALERT] {message}")
+        logMessage(f"[ALERT] {message}")
         return
 
     from_addr = smtp_user
@@ -63,9 +63,9 @@ def send_alert_alternate(message):
         server.login(smtp_user, smtp_pass)
         server.sendmail(from_addr, to_addr, message)
         server.quit()
-        print(f"[Alert sent] {message}")
+        logMessage(f"[Alert sent] {message}")
     except Exception as e:
-        print(f"[Alert error] {e}")
+        logMessage(f"[Alert error] {e}")
 
 
 #Load password for notifications         

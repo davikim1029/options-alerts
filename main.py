@@ -9,7 +9,7 @@ from services.news_aggregator import aggregate_headlines_smart
 from strategy.sentiment import SectorSentimentStrategy
 from services.scanner_utils import get_active_tickers
 from encryption.encryptItems import encryptEtradeKeySecret
-from services.utils import get_boolean_input
+from services.utils import logMessage
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""        # disable CUDA
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -42,6 +42,8 @@ def get_mode_from_prompt():
 
 def main():
     os.makedirs("cache", exist_ok=True)
+    logMessage("Script started.")
+
     load_dotenv()
     parser = argparse.ArgumentParser(description="OptionsAlerts CLI")
     parser.add_argument("--mode", help="Mode to run")

@@ -8,7 +8,7 @@ from services.scanner_utils import get_active_tickers
 from queue import Queue
 from services.utils import AddMessage 
 from services.scanner_utils import get_next_run_date
-
+from services.utils import logMessage
 
 
 def run_buy_scan(mode:str,consumer: EtradeConsumer,
@@ -43,7 +43,12 @@ def run_buy_scan(mode:str,consumer: EtradeConsumer,
         AddMessage(f"Starting Buy Scanner | Tickers: {len(tickers)}",messageQueue)
         
         context = {"exposure": consumer.get_open_exposure()}
+        counter = 0
         for ticker in tickers:
+            counter += 1
+            if counter > 1000:
+                logMessage("Processed {counter} tickers")
+                counter = 0
             try:
                 if ignore_cache.is_cached(ticker):
                     continue   

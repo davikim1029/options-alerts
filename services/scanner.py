@@ -4,6 +4,7 @@ from services.etrade_consumer import EtradeConsumer
 from models.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache,EvalCache,TickerCache
 from services.sell_scanner import run_sell_scan
 from services.api_worker import ApiWorker
+from services.utils import logMessage
 from threading import Thread
 import queue
 import time
@@ -34,13 +35,13 @@ def run_scan(mode:str, consumer:EtradeConsumer,debug:bool = False):
     try:
         buy_thread = _start_buy_loop(mode=mode,consumer=consumer,news_cache=news_cache,rate_cache = rate_cache,debug=debug)
     except Exception as e:
-        print(f"[Scanner-buy-error] {e}")
+        logMessage(f"[Scanner-buy-error] {e}")
 
     # SELL check loop
     try:
         sell_thread = _start_sell_loop(mode=mode,consumer=consumer, news_cache=news_cache,rate_cache = rate_cache,debug=debug)
     except Exception as e:
-        print(f"[Scanner-sell-error] {e}")
+        logMessage(f"[Scanner-sell-error] {e}")
         
     while True:
         try:
@@ -48,12 +49,12 @@ def run_scan(mode:str, consumer:EtradeConsumer,debug:bool = False):
             break
         except queue.Empty:
             if not buy_thread.is_alive():
-                print("Buy thread is no longer alive")
+                logMessage("Buy thread is no longer alive")
             if not sell_thread.is_alive():
-                print("Sell thread is no longer alive")
+                logMessage("Sell thread is no longer alive")
         try:
             msg = error_queue.get(block=False)
-            print(msg)
+            logMessage(msg)
         except queue.Empty:
             pass #move on
         

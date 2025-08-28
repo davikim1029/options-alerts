@@ -3,7 +3,11 @@ venv/
 __pycache__
 *__pycache__
 cache/
-.DS_Store
+**/*.DS_Store
+# Ignore any file anywhere with 'etrade_token' in the filename
+**/*etrade_token*
+*etrade_token*
 models/.DS_Store
 models/etrade_tokens*
 models/etrade_tokens_prod.json
+logs/

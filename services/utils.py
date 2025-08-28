@@ -116,15 +116,3 @@ def from_dict(cls: Type[T], data: Union[Dict[str, Any], List[Any]]) -> T:
             init_values[field_name] = value
 
     return cls(**init_values)
-
-
-def tree():
-    return defaultdict(tree)
-
-def tuple_keys_to_str(obj):
-    if isinstance(obj, dict):
-        return {str(k): tuple_keys_to_str(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [tuple_keys_to_str(i) for i in obj]
-    else:
-        return obj

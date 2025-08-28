@@ -62,7 +62,7 @@ class EtradeConsumer:
                     
                 return None
             
-        else:
+        else: 
             return self.session.get(url,headers= headers,params=params)
              
     

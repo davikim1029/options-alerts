@@ -6,7 +6,7 @@ import time
 
 
 class CacheManager:
-    def __init__(self,CACHE_DISPLAY_NAME:str,CACHE_FILE:str,CACHE_TTL_DAYS:float = 30, CACHE_TTL_HOURS:float = None,INTERIM_SAVE_SECONDS:int = 60, AUTO_SAVE:bool = True):
+    def __init__(self,CACHE_DISPLAY_NAME:str,CACHE_FILE:str,CACHE_TTL_DAYS:float = None, CACHE_TTL_HOURS:float = None,INTERIM_SAVE_SECONDS:int = 60, AUTO_SAVE:bool = True):
         self._cache = {}
         self._display_name:str = CACHE_DISPLAY_NAME
         self._cache_file:str = CACHE_FILE
@@ -24,7 +24,6 @@ class CacheManager:
             try:
                 with open(self._cache_file, "r") as f:
                     raw = json.load(f)
-                now = datetime.now(timezone.utc)
                 with self._lock:
                     for key, cacheValue in raw.items():
                         ts_str = cacheValue.get("Timestamp")
@@ -32,7 +31,7 @@ class CacheManager:
                         if ts_str is None:
                             continue
                         ts = datetime.fromisoformat(ts_str)
-                        if now - ts < timedelta(days=self._cache_ttl_days):
+                        if not self.is_expired(ts):  # ✅ use is_expired instead
                             self._cache[key] = {"Value": value, "Timestamp": ts}
             except json.JSONDecodeError:
                 print(f"[{self._display_name}] cache file empty or corrupted, initializing empty cache")
@@ -76,14 +75,30 @@ class CacheManager:
         with self._lock:
             cacheValue = self._cache.get(key)
             if cacheValue is not None:
-                stale = not(datetime.now(timezone.utc) - cacheValue["Timestamp"] < timedelta(days=self._cache_ttl_days))
-                if self._cache_ttl_hours:
-                    stale = not(datetime.now(timezone.utc) - cacheValue["Timestamp"] < timedelta(hours=self._cache_ttl_hours))
+                stale = self.is_expired(cacheValue["Timestamp"])
                 if stale:
                     del self._cache[key]
                 else:
                     return True
             return False
+        
+    def is_expired(self,timestamp):
+
+        # Set defaults
+        if self._cache_ttl_days is None and self._cache_ttl_hours is None:
+            self._cache_ttl_days = 30
+            self._cache_ttl_hours = 0
+        elif self._cache_ttl_days is None:
+            self._cache_ttl_days = 0
+        elif self._cache_ttl_hours is None:
+            self._cache_ttl_hours = 0
+
+        # Compute TTL as timedelta
+        ttl = timedelta(days=self._cache_ttl_days, hours=self._cache_ttl_hours)
+
+        # Compare current time to timestamp
+        now = datetime.now(timezone.utc)
+        return now - timestamp > ttl
     
     def add(self, key: str, value):
         with self._lock:
@@ -104,15 +119,17 @@ class CacheManager:
             self._save_cache()
             
     def tuples_to_nested_dict(self,d):
+        if not isinstance(d, dict):
+            return d  # not a dict, just return it as-is
+
         nested = {}
         for key, value in d.items():
             if not isinstance(key, tuple):
-                # simple key, keep as is
                 nested[key] = value
                 continue
 
             current = nested
-            for k in key[:-1]:  # traverse/create intermediate dicts
+            for k in key[:-1]:
                 current = current.setdefault(k, {})
             current[key[-1]] = value
         return nested
@@ -153,13 +170,11 @@ class BoughtTickerCache(CacheManager):
 class NewsApiCache(CacheManager):
     def __init__(self):
         NEWSAPI_CACHE_FILE = "cache/newsapi_sentiment.json"
-        NEWSAPI_CACHE_TTL_DAYS = 30
         NEWSAPI_CACHE_TTL_HOURS = 6
         NEWSAPI_CACHE_SAVE_INTERVAL_SECONDS = 60
         super().__init__(
             CACHE_DISPLAY_NAME="NewsApi Cache",
             CACHE_FILE=NEWSAPI_CACHE_FILE,
-            CACHE_TTL_DAYS=NEWSAPI_CACHE_TTL_DAYS,
             CACHE_TTL_HOURS= NEWSAPI_CACHE_TTL_HOURS,
             INTERIM_SAVE_SECONDS=NEWSAPI_CACHE_SAVE_INTERVAL_SECONDS
         )               
@@ -194,5 +209,5 @@ class EvalCache(CacheManager):
         super().__init__(
             CACHE_DISPLAY_NAME="Evaluated Cache",
             CACHE_FILE=EVAL_CACHE_FILE,
-            CACHE_TTL_DAYS=EVAL_CACHE_TTL_HOURS,
+            CACHE_TTL_HOURS=EVAL_CACHE_TTL_HOURS,
         )

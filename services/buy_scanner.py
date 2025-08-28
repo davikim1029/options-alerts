@@ -1,5 +1,5 @@
 from models.option import OptionContract
-from models.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache,EvalCache
+from models.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache,EvalCache,TickerCache
 from strategy.buy import OptionBuyStrategy
 from strategy.sentiment import SectorSentimentStrategy
 from services.etrade_consumer import EtradeConsumer
@@ -11,7 +11,16 @@ from services.scanner_utils import get_next_run_date
 
 
 
-def run_buy_scan(mode:str,consumer: EtradeConsumer,ignore_cache:IgnoreTickerCache = None,bought_cache:BoughtTickerCache = None,news_cache:NewsApiCache = None,rate_cache:RateLimitCache = None,eval_cache:EvalCache = None,messageQueue: Queue = None, seconds_to_wait: int= 0, debug:bool = False):
+def run_buy_scan(mode:str,consumer: EtradeConsumer,
+                 ignore_cache:IgnoreTickerCache = None,
+                 bought_cache:BoughtTickerCache = None,
+                 news_cache:NewsApiCache = None,
+                 rate_cache:RateLimitCache = None,
+                 eval_cache:EvalCache = None,
+                 ticker_cache:TickerCache = None,
+                 messageQueue: Queue = None, 
+                 seconds_to_wait: int= 0, 
+                 debug:bool = False):
     
     buy_strategies = {
         "Primary": [    
@@ -30,7 +39,7 @@ def run_buy_scan(mode:str,consumer: EtradeConsumer,ignore_cache:IgnoreTickerCach
         if eval_cache is None:
             eval_cache = EvalCache()
             
-        tickers = get_active_tickers()
+        tickers = get_active_tickers(ticker_cache=ticker_cache)
         AddMessage(f"Starting Buy Scanner | Tickers: {len(tickers)}",messageQueue)
         
         successCount = 0

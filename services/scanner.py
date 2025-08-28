@@ -1,7 +1,7 @@
 # scanner.py
 from services.buy_scanner import run_buy_scan
 from services.etrade_consumer import EtradeConsumer
-from models.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache,EvalCache
+from models.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache,EvalCache,TickerCache
 from services.sell_scanner import run_sell_scan
 from services.api_worker import ApiWorker
 from threading import Thread
@@ -66,6 +66,7 @@ def run_scan(mode:str, consumer:EtradeConsumer,debug:bool = False):
 def _start_buy_loop(mode:str,consumer:EtradeConsumer, news_cache: NewsApiCache = None,rate_cache:RateLimitCache = None, debug:bool = False):
     ignore_cache = IgnoreTickerCache()
     bought_cache = BoughtTickerCache()
+    ticker_cache = TickerCache()
     eval_cache = EvalCache()
     
     if news_cache is None:
@@ -76,7 +77,17 @@ def _start_buy_loop(mode:str,consumer:EtradeConsumer, news_cache: NewsApiCache =
         
     def buy_loop():
         while True:
-            run_buy_scan(mode=mode,consumer=consumer,ignore_cache=ignore_cache,bought_cache=bought_cache,news_cache=news_cache,rate_cache=rate_cache, eval_cache=eval_cache,messageQueue=error_queue,seconds_to_wait=BUY_INTERVAL_SECONDS, debug=debug)
+            run_buy_scan(mode=mode,
+                         consumer=consumer,
+                         ignore_cache=ignore_cache,
+                         bought_cache=bought_cache,
+                         news_cache=news_cache,
+                         rate_cache=rate_cache, 
+                         eval_cache=eval_cache,
+                         ticker_cache=ticker_cache,
+                         messageQueue=error_queue,
+                         seconds_to_wait=BUY_INTERVAL_SECONDS, 
+                         debug=debug)
             time.sleep(BUY_INTERVAL_SECONDS)
     thread = Thread(name="Buy Scanner",target=buy_loop, daemon=True)
     thread.start()

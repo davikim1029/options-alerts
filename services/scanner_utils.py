@@ -13,11 +13,12 @@ from datetime import datetime, timedelta, time
 
 ################################ TICKER CACHE ####################################
 
-def get_active_tickers():
-    ticker_cache = TickerCache()
+def get_active_tickers(ticker_cache:TickerCache = None):
+    if ticker_cache is None:
+        ticker_cache = TickerCache()
     ticker_cache._load_cache()
     if ticker_cache.is_empty():
-        tickers = fetch_us_tickers_from_finnhub()
+        tickers = fetch_us_tickers_from_finnhub(ticker_cache=ticker_cache)
     else:
         tickers = ticker_cache.get("tickers")
     return tickers

@@ -4,9 +4,8 @@ import json
 from datetime import datetime
 from models.cache_manager import TickerCache
 
-ticker_cache = TickerCache()
 
-def fetch_us_tickers_from_finnhub():
+def fetch_us_tickers_from_finnhub(ticker_cache:TickerCache):
     api_key = os.getenv("FINNHUB_API_KEY")
     if not api_key:
         raise Exception("FINNHUB_API_KEY not set in environment")
@@ -28,8 +27,9 @@ def fetch_us_tickers_from_finnhub():
         for s in raw_data
         if "." not in s["symbol"] and s.get("type") in ["Common Stock", "ADR"]
     }
-    ticker_cache.add("tickers",tickers_dict)
-    ticker_cache._save_cache()
+    if ticker_cache is not None:
+        ticker_cache.add("tickers",tickers_dict)
+        ticker_cache._save_cache()
 
     return tickers_dict
 

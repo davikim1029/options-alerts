@@ -1,7 +1,7 @@
 import logging
 import os
 from datetime import datetime
-from services.shutdown_handler import ShutdownManager
+from services.core.shutdown_handler import ShutdownManager
 
 
 class Logger:

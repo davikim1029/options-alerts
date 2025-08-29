@@ -8,7 +8,7 @@ from transformers import pipeline
 import os
 from services.news_aggregator import aggregate_headlines_smart
 from models.generated.Position import Position
-from services.cache_manager import NewsApiCache,RateLimitCache
+from services.core.cache_manager import NewsApiCache,RateLimitCache
 from typing import Optional,Union
 
 MAX_LEN = 250  # trim text before passing to model

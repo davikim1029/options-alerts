@@ -3,11 +3,11 @@ import os
 import argparse
 from dotenv import load_dotenv
 from services.apitest import run_api_test
-from services.scanner import run_scan
+from services.scanner.scanner import run_scan
 from services.etrade_consumer import EtradeConsumer,refresh_token
 from services.news_aggregator import aggregate_headlines_smart
 from strategy.sentiment import SectorSentimentStrategy
-from services.scanner_utils import get_active_tickers
+from services.scanner.scanner_utils import get_active_tickers
 from encryption.encryptItems import encryptEtradeKeySecret
 from services.utils import logMessage
 

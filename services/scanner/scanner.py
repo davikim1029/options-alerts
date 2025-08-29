@@ -1,12 +1,12 @@
 # scanner.py
-from services.buy_scanner import run_buy_scan
+from services.scanner.buy_scanner import run_buy_scan
 from services.etrade_consumer import EtradeConsumer
-from services.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache,EvalCache,TickerCache,LastTickerCache
-from services.sell_scanner import run_sell_scan
-from services.api_worker import ApiWorker
+from services.core.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache,EvalCache,TickerCache,LastTickerCache
+from services.scanner.sell_scanner import run_sell_scan
+from services.threading.api_worker import ApiWorker
 from services.utils import logMessage
-from services.thread_manager import ThreadManager
-from services.shutdown_handler import ShutdownManager
+from services.threading.thread_manager import ThreadManager
+from services.core.shutdown_handler import ShutdownManager
 from services.utils import logMessage
 import queue
 

@@ -1,7 +1,7 @@
 import os
 import requests
 import feedparser
-from services.cache_manager import RateLimitCache
+from services.core.cache_manager import RateLimitCache
 from typing import List, Dict, Optional
 from services.utils import logMessage
 from dataclasses import dataclass

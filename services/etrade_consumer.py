@@ -8,7 +8,7 @@ from cryptography.fernet import Fernet
 from requests_oauthlib import OAuth1Session
 from urllib.parse import urlencode
 import webbrowser
-from services.api_worker import ApiWorker,HttpMethod
+from services.threading.api_worker import ApiWorker,HttpMethod
 from services.utils import logMessage
 
 class EtradeConsumer:

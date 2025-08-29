@@ -6,7 +6,7 @@ import os
 import json
 from models.option import OptionContract
 from models.tickers import fetch_us_tickers_from_finnhub
-from services.cache_manager import TickerCache
+from services.core.cache_manager import TickerCache
 from datetime import datetime, timedelta, time
 
 

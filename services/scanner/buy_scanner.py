@@ -1,12 +1,12 @@
 from models.option import OptionContract
-from services.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache,EvalCache,TickerCache,LastTickerCache
+from services.core.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache,EvalCache,TickerCache,LastTickerCache
 from strategy.buy import OptionBuyStrategy
 from strategy.sentiment import SectorSentimentStrategy
 from services.etrade_consumer import EtradeConsumer
 from services.alerts import send_alert
-from services.scanner_utils import get_active_tickers
+from services.scanner.scanner_utils import get_active_tickers
 import time
-from services.scanner_utils import get_next_run_date
+from services.scanner.scanner_utils import get_next_run_date
 from services.utils import logMessage
 
 
@@ -45,15 +45,14 @@ def run_buy_scan(stop_event,
         
         context = {"exposure": consumer.get_open_exposure()}
         counter = 0
+        processedCounter = 0
         for ticker in ticker_keys[start_index:]:
             counter += 1
-            if counter > 1000:
-                logMessage(f"Processed {counter} tickers")
-                counter = 0
                 
             if counter % 5 == 0:
                 if last_ticker_cache is not None:
                     last_ticker_cache.add("lastSeen",ticker)
+            
                 
             if stop_event.is_set():
                 if last_ticker_cache is not None:
@@ -68,6 +67,11 @@ def run_buy_scan(stop_event,
                     continue 
                 if eval_cache is not None and eval_cache.is_cached(ticker):
                     continue
+                
+                #only count tickers that aren't cached
+                processedCounter += 1
+                if processedCounter % 200 == 0:
+                    logMessage(f"Processed {counter} tickers. {len(ticker_keys)-counter} remaining.")
                 
                 options,hasOptions = consumer.get_option_chain(ticker)
                 if not hasOptions:

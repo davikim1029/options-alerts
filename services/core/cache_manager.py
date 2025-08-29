@@ -2,7 +2,7 @@ import json
 import os
 from datetime import datetime,timedelta,timezone
 from threading import Thread, Lock
-from services.shutdown_handler import ShutdownManager
+from services.core.shutdown_handler import ShutdownManager
 from services.utils import logMessage
 import time
 

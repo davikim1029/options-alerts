@@ -4,6 +4,8 @@ from datetime import datetime
 
 class ThreadManager:
     _instance = None
+    _started_once = False
+    _stopped_once = False
 
     def __init__(self):
         self.stop_event = threading.Event()
@@ -29,15 +31,31 @@ class ThreadManager:
             self.threads.append(thread)
 
     def start_all(self):
-        print("Starting workers...")
+        if not ThreadManager._started_once:
+            print("Starting workers...")
+            ThreadManager._started_once = True
+            ThreadManager._stopped_once = False #Mark stopped as false
+       
         self.stop_event.clear()
         with self.lock:
-            for t in self.threads:
+            if not self.threads:
+                print("No threads to start.")
+                return
+
+            for i, t in enumerate(self.threads, 1):
                 if not t.is_alive():
+                    print(f"Starting thread {i}: {t.name}")
                     t.start()
+                    print(f"Thread {i} started.")
+                else:
+                    print(f"Thread {i}: {t.name} is already running (pulse check).")
 
     def stop_all(self):
-        print("Stopping workers...")
+        if not ThreadManager._stopped_once:
+            print("Stopping workers...")
+            ThreadManager._stopped_once = True
+            ThreadManager._started_once = False #Mark started as false
+            
         self.stop_event.set()
         with self.lock:
             for t in self.threads:

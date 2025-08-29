@@ -2,7 +2,7 @@ import os
 import requests
 import json
 from datetime import datetime
-from models.cache_manager import TickerCache
+from services.cache_manager import TickerCache
 from services.utils import logMessage
 
 

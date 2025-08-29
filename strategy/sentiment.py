@@ -8,7 +8,7 @@ from transformers import pipeline
 import os
 from services.news_aggregator import aggregate_headlines_smart
 from models.generated.Position import Position
-from models.cache_manager import NewsApiCache,RateLimitCache
+from services.cache_manager import NewsApiCache,RateLimitCache
 from typing import Optional,Union
 
 MAX_LEN = 250  # trim text before passing to model
@@ -78,7 +78,7 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
                 pass  # we’ll interpret in sell logic
 
             # 4. News sentiment evaluation
-            if self._news_cache.is_cached(symbol):
+            if self._news_cache is not None and self._news_cache.is_cached(symbol):
                 headlines,avg_sent = self.get_cached_info(symbol)
             else:
                 headlines = aggregate_headlines_smart(symbol,self._rate_cache)
@@ -148,7 +148,8 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
             "headlines":headlines,
             "avg_sentiment":avg_sentiment,
         }
-        self._news_cache.add(ticker,cache_value)
+        if self._news_cache is not None:
+            self._news_cache.add(ticker,cache_value)
         return None
     
     def get_cached_info(self,ticker:str):

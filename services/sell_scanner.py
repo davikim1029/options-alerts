@@ -1,14 +1,12 @@
 from services.etrade_consumer import EtradeConsumer
 from services.alerts import send_alert
 from strategy.sentiment import SectorSentimentStrategy
-from strategy.sell import StopLossStrategy,TakeProfitStrategy,TimeDecayStrategy, OptionSellStrategy  # assumes dict with Primary/Secondary
-from models.option import OptionContract  # or HeldOption depending on your structure
+from strategy.sell import  OptionSellStrategy  # assumes dict with Primary/Secondary
 from models.generated.Position import Position
 from models.generated.Account import PortfolioAccount
 from typing import Optional, List
-from services.utils import AddMessage 
 from services.scanner_utils import get_next_run_date
-from models.cache_manager import NewsApiCache,RateLimitCache
+from services.cache_manager import NewsApiCache,RateLimitCache
 from services.utils import logMessage
 
 import queue
@@ -16,14 +14,11 @@ import queue
 
 
 
-def run_sell_scan(mode: str, consumer: EtradeConsumer, news_cache:NewsApiCache = None, rate_cache:RateLimitCache = None, messageQueue:queue = None,seconds_to_wait: int = 0, debug:bool = False) -> None:
+def run_sell_scan(mode: str, consumer: EtradeConsumer, news_cache:NewsApiCache = None, rate_cache:RateLimitCache = None,seconds_to_wait: int = 0, debug:bool = False) -> None:
     
     sell_strategies = {
         "Primary": [
             OptionSellStrategy(),
-            #StopLossStrategy(),
-            #TakeProfitStrategy(),
-            #TimeDecayStrategy(),
         ],
         "Secondary": [
             SectorSentimentStrategy(news_cache = news_cache,rate_cache = rate_cache), 
@@ -35,10 +30,10 @@ def run_sell_scan(mode: str, consumer: EtradeConsumer, news_cache:NewsApiCache =
         positions:Optional[List[Position]] = consumer.get_positions()
 
         if not positions:
-            AddMessage("[Sell Scan] No positions to evaluate.",messageQueue)
+            logMessage("[Sell Scan] No positions to evaluate.")
             return
 
-        AddMessage(f"Starting Sell Scanner | Open Positions: {len(positions)}", messageQueue)
+        logMessage(f"Starting Sell Scanner | Open Positions: {len(positions)}")
         for pos in positions: 
             try:
                 should_sell = True
@@ -71,11 +66,11 @@ def run_sell_scan(mode: str, consumer: EtradeConsumer, news_cache:NewsApiCache =
 
                     # Simulate/execute trade depending on mode
                     if mode in ("paper", "live"):
-                        messageQueue(f"[Trade] Execute SELL for {pos.symbolDescription}",messageQueue)
+                        logMessage(f"[Trade] Execute SELL for {pos.symbolDescription}")
                         # TODO: hook into trade execution here
 
             except Exception as e:
-                AddMessage(f"[Sell-Scan-Error] {pos.Product.symbol}: {e}",messageQueue)
-        AddMessage(f"Sell Scanner Completed. Will start again at {get_next_run_date(seconds_to_wait)}",messageQueue)
+                logMessage(f"[Sell-Scan-Error] {pos.Product.symbol}: {e}")
+        logMessage(f"Sell Scanner Completed. Will start again at {get_next_run_date(seconds_to_wait)}")
     except Exception as e:
-        AddMessage(f"Error in Sell Scanner: {e}", messageQueue)
+        logMessage(f"Error in Sell Scanner: {e}")

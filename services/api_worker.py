@@ -1,7 +1,11 @@
 # api_worker.py
-import queue, threading, time
+import queue
+import time
 from requests import Session
 import enum
+from dataclasses import dataclass
+from typing import Optional, Any
+import requests
 
 class HttpMethod(enum.Enum):
     GET = "GET"
@@ -9,24 +13,34 @@ class HttpMethod(enum.Enum):
     POST = "POST"
     DELETE = "DELETE"
 
+@dataclass
+class HttpResult:
+    ok: bool
+    status_code: Optional[int] = None
+    data: Optional[Any] = None
+    error: Optional[str] = None
+    response: Optional[requests.Response] = None
+
 class ApiWorker:
-    def __init__(self,session:Session, min_interval=1.0):
-        self._last_call = 0
+    def __init__(self, session: Session, min_interval: float = 1.0):
         self.session = session
         self._queue = queue.Queue()
         self._min_interval = min_interval
-        self._thread = threading.Thread(name="HTTP Worker", target=self._worker, daemon=True)
-        self._thread.start()
+        self._last_call = 0
 
-    def _worker(self):
-        while True:
-            method, url, kwargs, result = self._queue.get()
+    def _worker(self, stop_event):
+        """Worker loop to process HTTP requests from the queue."""
+        while not stop_event.is_set():
+            try:
+                method, url, kwargs, result = self._queue.get(timeout=1)
+            except queue.Empty:
+                continue  # periodically check stop_event
 
-            # throttle
+            # Throttle requests
             now = time.time()
             elapsed = now - self._last_call
             if elapsed < self._min_interval:
-                time.sleep(self._min_interval - elapsed)
+                stop_event.wait(self._min_interval - elapsed)
             self._last_call = time.time()
 
             try:
@@ -47,7 +61,7 @@ class ApiWorker:
             except requests.exceptions.HTTPError as e:
                 result.append(HttpResult(
                     ok=False,
-                    status_code=e.response.status_code if e.response is not None else None,
+                    status_code=e.response.status_code if e.response else None,
                     error=f"HTTPError: {str(e)}",
                     response=e.response
                 ))
@@ -56,8 +70,8 @@ class ApiWorker:
 
             self._queue.task_done()
 
-
-    def call_api(self, method: HttpMethod, url: str, **kwargs):
+    def call_api(self, method: HttpMethod, url: str, **kwargs) -> HttpResult:
+        """Queue an API call and wait for result synchronously."""
         result = []
         self._queue.put((method, url, kwargs, result))
         self._queue.join()
@@ -65,17 +79,3 @@ class ApiWorker:
         if isinstance(res, Exception):
             raise res
         return res
-
-
-from dataclasses import dataclass
-from typing import Optional, Any
-import requests
-
-
-@dataclass
-class HttpResult:
-    ok: bool
-    status_code: Optional[int] = None
-    data: Optional[Any] = None
-    error: Optional[str] = None
-    response: Optional[requests.Response] = None

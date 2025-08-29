@@ -14,8 +14,8 @@ class CacheManager:
                  CACHE_TTL_DAYS:float = None, 
                  CACHE_TTL_HOURS:float = None,
                  CACHE_TTL_MINS:float = None,
-                 INTERIM_SAVE_SECONDS:int = 60, 
-                 AUTO_SAVE:bool = True):
+                 INTERIM_SAVE_SECONDS:int = 60
+                 ):
         self._cache = {}
         
         # Initialize shutdown manager once
@@ -32,8 +32,6 @@ class CacheManager:
         self._lock = Lock()  # thread-safety lock
         self._load_cache()
         
-        if (AUTO_SAVE):
-            self._start_autosave()
         
     def _load_cache(self):
         if os.path.exists(self._cache_file):
@@ -73,14 +71,10 @@ class CacheManager:
         except Exception as e:
             logMessage(f"[{self._display_name}] failed to save cache: {e}")
 
-    
-    def _start_autosave(self):
-        def save_loop():
-            while True:
-                time.sleep(self._interim_save_seconds)
-                self._save_cache()
-        thread = Thread(name=f"{self._display_name}_AutoSave", target=save_loop, daemon=True)
-        thread.start()
+    def autosave_loop(self, stop_event):
+        while not stop_event.is_set():
+            self._save_cache()
+            stop_event.wait(self._interim_save_seconds)
         
     def is_empty(self) -> bool:
         return not bool(self._cache)
@@ -229,7 +223,6 @@ class TickerCache(CacheManager):
             CACHE_DISPLAY_NAME="Ticker Cache",
             CACHE_FILE=TICKER_CACHE_FILE,
             CACHE_TTL_DAYS=TICKER_CACHE_TTL_DAYS,
-            AUTO_SAVE=False
         )
         
 class EvalCache(CacheManager):
@@ -240,6 +233,15 @@ class EvalCache(CacheManager):
         super().__init__(
             CACHE_DISPLAY_NAME="Evaluated Cache",
             CACHE_FILE=EVAL_CACHE_FILE,
-            #CACHE_TTL_HOURS=EVAL_CACHE_TTL_HOURS,
             CACHE_TTL_MINS=EVAL_CACHE_TTL_MINS
+        )
+
+class LastTickerCache(CacheManager):
+    def __init__(self):
+        LASTTICKER_CACHE_FILE = "cache/last_ticker.json"
+        LASTTICKER_CACHE_TTL_DAYS = 1
+        super().__init__(
+            CACHE_DISPLAY_NAME="Last Ticker Cache",
+            CACHE_FILE=LASTTICKER_CACHE_FILE,
+            CACHE_TTL_DAYS=LASTTICKER_CACHE_TTL_DAYS
         )

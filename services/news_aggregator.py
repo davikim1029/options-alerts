@@ -1,7 +1,7 @@
 import os
 import requests
 import feedparser
-from models.cache_manager import RateLimitCache
+from services.cache_manager import RateLimitCache
 from typing import List, Dict, Optional
 from services.utils import logMessage
 from dataclasses import dataclass
@@ -50,14 +50,15 @@ class NewsAPIClient(NewsClient):
             "nytimes.com", "ft.com", "forbes.com", "businessinsider.com", "yahoo.com"
         ]
         news_sources_str = ",".join(news_sources)
-        if self.rate_cache.is_cached(f"NewsAPI:{ticker}"):
+        if self.rate_cache is not None and self.rate_cache.is_cached(f"NewsAPI:{ticker}"):
             return None
 
         url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&sources={news_sources_str}"
         resp = requests.get(url, headers={"Authorization": f"Bearer {self.api_key}"})
         if resp.status_code == 429:
             logMessage("[NewsAPI] Rate limit hit")
-            self.rate_cache.add(f"NewsAPI:{ticker}", 24*3600)  # reset daily
+            if self.rate_cache is not None:
+                self.rate_cache.add(f"NewsAPI:{ticker}", 24*3600)  # reset daily
             return None
         if resp.status_code != 200:
             return None
@@ -82,7 +83,7 @@ class NewsDataClient(NewsClient):
         self.api_key = os.getenv("NEWSDATA_KEY")
 
     def fetch(self, ticker: str) -> Optional[List[Dict]]:
-        if self.rate_cache.is_cached(f"NewsData:{ticker}"):
+        if self.rate_cache is not None and self.rate_cache.is_cached(f"NewsData:{ticker}"):
             return None
         
         categories = ["business"]  # could add more later, e.g., ["business", "technology"]
@@ -92,7 +93,8 @@ class NewsDataClient(NewsClient):
         resp = requests.get(url)
         if resp.status_code == 429:
             logMessage("[NewsData] Rate limit hit")
-            self.rate_cache.add(f"NewsData:{ticker}", 3600)  # assume hourly reset
+            if self.rate_cache is not None:
+                self.rate_cache.add(f"NewsData:{ticker}", 3600)  # assume hourly reset
             return None
         if resp.status_code != 200:
             return None
@@ -129,7 +131,7 @@ class GoogleNewsClient(NewsClient):
         
     def fetch(self, ticker: str) -> List[Dict]:
         cache_key = f"GoogleNews:{ticker}"
-        if self.rate_cache.is_cached(cache_key):
+        if self.rate_cache is not None and self.rate_cache.is_cached(cache_key):
             return self.rate_cache.get(cache_key)
         
         keywords = [ticker, "stock", "shares", "finance"]
@@ -154,9 +156,6 @@ class GoogleNewsClient(NewsClient):
 # --------------------------
 def aggregate_headlines_smart(ticker: str, rate_cache:RateLimitCache = None) -> List[Dict]:
     
-    if rate_cache is None:
-        rate_cache = RateLimitCache()
-    
     sources_priority = [
         ("NewsAPI", NewsAPIClient(rate_cache=rate_cache), True),
         ("NewsData", NewsDataClient(rate_cache=rate_cache), True),
@@ -165,7 +164,7 @@ def aggregate_headlines_smart(ticker: str, rate_cache:RateLimitCache = None) -> 
 
     new_articles = []
     for name, news_client, rate_limited in sources_priority:
-        if rate_cache.is_cached(f"{name}:{ticker}"):
+        if rate_cache is not None and rate_cache.is_cached(f"{name}:{ticker}"):
             continue
         
         try:
@@ -176,7 +175,7 @@ def aggregate_headlines_smart(ticker: str, rate_cache:RateLimitCache = None) -> 
         if articles:
             new_articles.extend(articles)
 
-            if rate_limited:
+            if rate_limited and rate_cache is not None:
                 rate_cache.add(f"{name}:{ticker}", 300)  # avoid hammering ticker-source combo
                 break
 

@@ -1,13 +1,14 @@
 # scanner.py
 from services.buy_scanner import run_buy_scan
 from services.etrade_consumer import EtradeConsumer
-from models.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache,EvalCache,TickerCache
+from services.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache,EvalCache,TickerCache,LastTickerCache
 from services.sell_scanner import run_sell_scan
 from services.api_worker import ApiWorker
 from services.utils import logMessage
-from threading import Thread
+from services.thread_manager import ThreadManager
+from services.shutdown_handler import ShutdownManager
+from services.utils import logMessage
 import queue
-import time
 
 
 input_processor_queue = queue.Queue()
@@ -20,105 +21,124 @@ SELL_INTERVAL_SECONDS = 300*6 #300 secs is 5 mins
 
 
 def run_scan(mode:str, consumer:EtradeConsumer,debug:bool = False):
-        
+    manager = ThreadManager.instance()
     news_cache = NewsApiCache()
     rate_cache = RateLimitCache()
-    api_worker = ApiWorker(consumer.session,2)
-    consumer.apiWorker = api_worker
-    
-    # Start worker to listen for input
-    Thread(name="Input Listener Thread",target=input_listener, daemon=True).start()
-
-    # Start worker to handle the input
-    Thread(name="Input Processor Thread" ,target=input_processor, daemon=True).start()
-    
-    try:
-        buy_thread = _start_buy_loop(mode=mode,consumer=consumer,news_cache=news_cache,rate_cache = rate_cache,debug=debug)
-    except Exception as e:
-        logMessage(f"[Scanner-buy-error] {e}")
-
-    # SELL check loop
-    try:
-        sell_thread = _start_sell_loop(mode=mode,consumer=consumer, news_cache=news_cache,rate_cache = rate_cache,debug=debug)
-    except Exception as e:
-        logMessage(f"[Scanner-sell-error] {e}")
-        
-    while True:
-        try:
-            item = input_processor_queue.get(block=False)  # immediately raises queue.Empty if nothing is there
-            break
-        except queue.Empty:
-            if not buy_thread.is_alive():
-                logMessage("Buy thread is no longer alive")
-            if not sell_thread.is_alive():
-                logMessage("Sell thread is no longer alive")
-        try:
-            msg = error_queue.get(block=False)
-            logMessage(msg)
-        except queue.Empty:
-            pass #move on
-        
-        time.sleep(10) #Wait 10 seconds before checking again
+    api_worker = ApiWorker(consumer.session, min_interval=2)
     
 
+    ShutdownManager.init(error_logger=logMessage)
+    caches = [news_cache, rate_cache]
+    for cache in caches:
+        ShutdownManager.register(lambda reason=None, c=cache: c._save_cache())
+    
+    manager.register(api_worker._worker, "HTTP Worker")
+    consumer.apiWorker = api_worker    
+    # Register workers instead of starting them
+    manager.register(input_listener, "Input Listener Thread")
+    manager.register(input_processor, "Input Processor Thread")
+    manager.register(news_cache.autosave_loop, "NewsAPI Cache Autosave")
+    manager.register(rate_cache.autosave_loop, "RateLimit Cache Autosave")
+    _start_buy_loop(mode, consumer, news_cache, rate_cache, debug)
+    _start_sell_loop(mode, consumer, news_cache, rate_cache, debug)
+
+    # Manager now handles lifecycle
+    manager.manage()
 
 
 
-def _start_buy_loop(mode:str,consumer:EtradeConsumer, news_cache: NewsApiCache = None,rate_cache:RateLimitCache = None, debug:bool = False):
+
+def _start_buy_loop(mode:str, consumer:EtradeConsumer, news_cache: NewsApiCache = None, rate_cache: RateLimitCache = None, debug: bool = False):
+    manager = ThreadManager.instance()
+    manager.register(
+        buy_loop,
+        "Buy Scanner",
+        mode,
+        consumer,
+        news_cache,
+        rate_cache,
+    )    
+    
+def buy_loop(stop_event, mode, consumer, news_cache, rate_cache):
     ignore_cache = IgnoreTickerCache()
     bought_cache = BoughtTickerCache()
-    ticker_cache = TickerCache()
     eval_cache = EvalCache()
+    ticker_cache = TickerCache()
+    last_ticker_cache = LastTickerCache()
     
-    if news_cache is None:
-        news_cache = NewsApiCache()
-        
-    if rate_cache is None:
-        rate_cache = RateLimitCache()
-        
-    def buy_loop():
-        while True:
-            run_buy_scan(mode=mode,
-                         consumer=consumer,
-                         ignore_cache=ignore_cache,
-                         bought_cache=bought_cache,
-                         news_cache=news_cache,
-                         rate_cache=rate_cache, 
-                         eval_cache=eval_cache,
-                         ticker_cache=ticker_cache,
-                         messageQueue=error_queue,
-                         seconds_to_wait=BUY_INTERVAL_SECONDS, 
-                         debug=debug)
-            time.sleep(BUY_INTERVAL_SECONDS)
-    thread = Thread(name="Buy Scanner",target=buy_loop, daemon=True)
-    thread.start()
-    return thread
+    caches = [ignore_cache, bought_cache, eval_cache, ticker_cache, last_ticker_cache]
+    for cache in caches:
+        ShutdownManager.register(lambda reason=None, c=cache: c._save_cache())
     
-def _start_sell_loop(mode:str,consumer:EtradeConsumer,news_cache: NewsApiCache = None,rate_cache:RateLimitCache = None, debug:bool = False):
+    last_seen = None
+    last_ticker_cache._load_cache()
+    if not last_ticker_cache.is_empty():
+        last_seen = last_ticker_cache.get("lastSeen")
     
-    if news_cache is None:
-        news_cache = NewsApiCache()
-        
-    if rate_cache is None:
-        rate_cache = RateLimitCache()
+    # Register their autosave loops
+    manager = ThreadManager.instance()
+    manager.register(ignore_cache.autosave_loop, "Ignore Cache Autosave")
+    manager.register(bought_cache.autosave_loop, "Bought Cache Autosave")
+    manager.register(eval_cache.autosave_loop, "Eval Cache Autosave")
+    manager.register(ticker_cache.autosave_loop, "Ticker Cache Autosave")
+    manager.register(last_ticker_cache.autosave_loop, "Last Ticker Cache Autosave")
+
+
+    while not stop_event.is_set():
+        run_buy_scan(
+            stop_event=stop_event,
+            consumer=consumer,
+            ignore_cache=ignore_cache,
+            bought_cache=bought_cache,
+            news_cache=news_cache,
+            rate_cache=rate_cache,
+            eval_cache=eval_cache,
+            ticker_cache=ticker_cache,
+            last_ticker_cache = last_ticker_cache,
+            last_seen = last_seen,
+            seconds_to_wait=BUY_INTERVAL_SECONDS,
+        )
+        stop_event.wait(BUY_INTERVAL_SECONDS)
+
     
-    def sell_loop():
-        while True:
-            run_sell_scan(mode=mode,consumer=consumer, news_cache=news_cache,rate_cache=rate_cache, messageQueue=error_queue, seconds_to_wait=SELL_INTERVAL_SECONDS,debug = debug)
-            time.sleep(SELL_INTERVAL_SECONDS)
-    thread = Thread(name="Sell Scanner",target=sell_loop, daemon=True)
-    thread.start()
-    return thread
-    
+def _start_sell_loop(mode: str,
+                     consumer: EtradeConsumer,
+                     news_cache: NewsApiCache = None,
+                     rate_cache: RateLimitCache = None,
+                     debug: bool = False):
+    manager = ThreadManager.instance()
+    # Register the sell_loop with all required arguments
+    manager.register(sell_loop, "Sell Scanner", mode, consumer, news_cache, rate_cache, debug)
+
+
+def sell_loop(stop_event, mode, consumer, news_cache, rate_cache, debug):
+    while not stop_event.is_set():
+        run_sell_scan(
+            mode=mode,
+            consumer=consumer,
+            news_cache=news_cache,
+            rate_cache=rate_cache,
+            seconds_to_wait=SELL_INTERVAL_SECONDS,
+            debug=debug
+        )
+        stop_event.wait(SELL_INTERVAL_SECONDS)  # graceful wait that respects stop_event
+
     
 
-def input_listener():
-    while True:
-        cmd = input()
-        user_input_queue.put(cmd)
+def input_listener(stop_event):
+    while not stop_event.is_set():
+        try:
+            cmd = input()
+            user_input_queue.put(cmd)
+        except EOFError:
+            break
 
-def input_processor():
-    while True:
-        cmd = user_input_queue.get()   # blocks until something is put
-        if cmd.lower() == "exit":
-            input_processor_queue.put("exit")
+
+def input_processor(stop_event):
+    while not stop_event.is_set():
+        try:
+            cmd = user_input_queue.get()   # blocks until something is put
+            if cmd.lower() == "exit":
+                input_processor_queue.put("exit")
+        except EOFError:
+            break

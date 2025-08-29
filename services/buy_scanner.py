@@ -1,24 +1,25 @@
 from models.option import OptionContract
-from models.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache,EvalCache,TickerCache
+from services.cache_manager import IgnoreTickerCache,BoughtTickerCache,NewsApiCache,RateLimitCache,EvalCache,TickerCache,LastTickerCache
 from strategy.buy import OptionBuyStrategy
 from strategy.sentiment import SectorSentimentStrategy
 from services.etrade_consumer import EtradeConsumer
 from services.alerts import send_alert
 from services.scanner_utils import get_active_tickers
-from queue import Queue
-from services.utils import AddMessage 
+import time
 from services.scanner_utils import get_next_run_date
 from services.utils import logMessage
 
 
-def run_buy_scan(mode:str,consumer: EtradeConsumer,
+def run_buy_scan(stop_event,
+                 consumer: EtradeConsumer,
                  ignore_cache:IgnoreTickerCache = None,
                  bought_cache:BoughtTickerCache = None,
                  news_cache:NewsApiCache = None,
                  rate_cache:RateLimitCache = None,
                  eval_cache:EvalCache = None,
                  ticker_cache:TickerCache = None,
-                 messageQueue: Queue = None, 
+                 last_ticker_cache:LastTickerCache = None,
+                 last_seen:str = None,
                  seconds_to_wait: int= 0, 
                  debug:bool = False):
     
@@ -32,41 +33,52 @@ def run_buy_scan(mode:str,consumer: EtradeConsumer,
     }
     
     try:
-        if ignore_cache is None:
-            ignore_cache = IgnoreTickerCache()
-        if bought_cache is None: 
-            bought_cache = BoughtTickerCache()
-        if eval_cache is None:
-            eval_cache = EvalCache()
-            
+
         tickers = get_active_tickers(ticker_cache=ticker_cache)
-        AddMessage(f"Starting Buy Scanner | Tickers: {len(tickers)}",messageQueue)
+        
+        ticker_keys = list(tickers.keys())  # get a list of tickers
+        start_index = 0
+        if last_seen and last_seen in ticker_keys:
+            start_index = ticker_keys.index(last_seen) + 1
+
+        logMessage(f"Starting Buy Scanner at index {start_index} | Tickers: {len(tickers)}")
         
         context = {"exposure": consumer.get_open_exposure()}
         counter = 0
-        for ticker in tickers:
+        for ticker in ticker_keys[start_index:]:
             counter += 1
             if counter > 1000:
-                logMessage("Processed {counter} tickers")
+                logMessage(f"Processed {counter} tickers")
                 counter = 0
+                
+            if counter % 5 == 0:
+                if last_ticker_cache is not None:
+                    last_ticker_cache.add("lastSeen",ticker)
+                
+            if stop_event.is_set():
+                if last_ticker_cache is not None:
+                    last_ticker_cache._save_cache()
+                logMessage("Buy Scanner stopping early due to stop_event")
+                return
+            
             try:
-                if ignore_cache.is_cached(ticker):
+                if ignore_cache is not None and ignore_cache.is_cached(ticker):
                     continue   
-                if bought_cache.is_cached(ticker):
+                if bought_cache is not None and bought_cache.is_cached(ticker):
                     continue 
-                if eval_cache.is_cached(ticker):
+                if eval_cache is not None and eval_cache.is_cached(ticker):
                     continue
                 
                 options,hasOptions = consumer.get_option_chain(ticker)
                 if not hasOptions:
-                    ignore_cache.add(ticker,"")
+                    if ignore_cache is not None:
+                        ignore_cache.add(ticker,"")
                     continue
                     
                 for opt_obj in options:
                     opt = OptionContract(**opt_obj)
                     should_buy = True
                     evalResult = {}
-                    FailureReason = ""
                     for primaryStrategy in buy_strategies.get("Primary"):
                         primStrategySuccess,error = primaryStrategy.should_buy(opt, context)
                         if not primStrategySuccess:
@@ -74,7 +86,7 @@ def run_buy_scan(mode:str,consumer: EtradeConsumer,
                             evalResult["PrimaryStrategy",primaryStrategy.name,"Result"]=False
                             evalResult["PrimaryStrategy",primaryStrategy.name,"Message"]=error
                             if debug:
-                                AddMessage(f"{opt.display} fails {primaryStrategy.name} for reason: {error}",messageQueue)
+                                logMessage(f"{opt.display} fails {primaryStrategy.name} for reason: {error}")
                         else:
                             evalResult["PrimaryStrategy",primaryStrategy.name,"Result"]=True
                             evalResult["PrimaryStrategy",primaryStrategy.name,"Message"]="Passed"
@@ -105,11 +117,12 @@ def run_buy_scan(mode:str,consumer: EtradeConsumer,
                         evalResult["SecondaryStrategy","N/A","Result"]=False
                         evalResult["SecondaryStrategy","N/A","Message"]="Secondary Strategies not run due to primary. failure."
                             
-                    eval_cache.add(ticker,evalResult)
+                    if eval_cache is not None: 
+                        eval_cache.add(ticker,evalResult)
 
             except Exception as e:
-                AddMessage(f"[Scanner-buy-error] {ticker}: {e}",messageQueue)
-        AddMessage(f"Buy Scanner Completed. Will start again at {get_next_run_date(seconds_to_wait)}",messageQueue)
+                logMessage(f"[Scanner-buy-error] {ticker}: {e}")
+        logMessage(f"Buy Scanner Completed. Will start again at {get_next_run_date(seconds_to_wait)}")
     except Exception as e:
-        AddMessage(f"Error in Buy Scanner: {e}", messageQueue)
+        logMessage(f"Error in Buy Scanner: {e}")
             

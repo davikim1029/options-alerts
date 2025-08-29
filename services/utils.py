@@ -2,7 +2,6 @@
 import json
 import os
 import time
-from queue import Queue
 from dataclasses import is_dataclass, fields, is_dataclass
 from typing import get_type_hints, List, Union, TypeVar, Dict, Any, Type
 from services.logger_singleton import logger
@@ -50,15 +49,6 @@ def yes_no(prompt: str, defaultResponse: bool = True, defaultOnEnter:bool = True
         else:
             print("Please enter 'y' or 'n'.")
             
-
-
-def AddMessage(msg: str, messageQueue: Queue):
-    if messageQueue is None:
-        log(msg)
-    else:
-        messageQueue.put(msg)
-
-   
 
 T = TypeVar("T")
 

@@ -9,6 +9,8 @@ from services.threading.thread_manager import ThreadManager
 from services.core.shutdown_handler import ShutdownManager
 from services.utils import logMessage
 import queue
+import threading
+stop_event = threading.Event()
 
 
 input_processor_queue = queue.Queue()
@@ -28,6 +30,10 @@ def run_scan(mode:str, consumer:EtradeConsumer,debug:bool = False):
     
 
     ShutdownManager.init(error_logger=logMessage)
+
+    # Tell shutdown manager to set stop_event
+    ShutdownManager.register(lambda reason=None: stop_event.set())    
+    
     caches = [news_cache, rate_cache]
     for cache in caches:
         ShutdownManager.register(lambda reason=None, c=cache: c._save_cache())

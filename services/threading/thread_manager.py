@@ -68,7 +68,7 @@ class ThreadManager:
         """Keeps workers active only during market hours."""
         
         try:
-            while True:
+            while not self.stop_event.is_set()::
                 now = datetime.now()
                 within_hours = (
                     (now.hour > start_hour or (now.hour == start_hour and now.minute >= start_minute))

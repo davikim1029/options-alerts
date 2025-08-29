@@ -43,6 +43,8 @@ def get_mode_from_prompt():
 def main():
     os.makedirs("cache", exist_ok=True)
     logMessage("Script started.")
+    
+    ShutdownManager.init(error_logger=logMessage)
 
     load_dotenv()
     parser = argparse.ArgumentParser(description="OptionsAlerts CLI")

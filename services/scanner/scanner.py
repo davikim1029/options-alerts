@@ -98,6 +98,10 @@ def buy_loop(stop_event, mode, consumer, news_cache, rate_cache):
             last_seen = last_seen,
             seconds_to_wait=BUY_INTERVAL_SECONDS,
         )
+        
+        #If we've completed the loop, clear last_seen
+        last_seen = None
+        
         stop_event.wait(BUY_INTERVAL_SECONDS)
 
     

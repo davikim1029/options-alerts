@@ -127,6 +127,8 @@ def run_buy_scan(stop_event,
             except Exception as e:
                 logMessage(f"[Scanner-buy-error] {ticker}: {e}")
         logMessage(f"Buy Scanner Completed. Will start again at {get_next_run_date(seconds_to_wait)}")
+        last_ticker_cache.clear()
+        last_ticker_cache._save_cache()
     except Exception as e:
         logMessage(f"Error in Buy Scanner: {e}")
             

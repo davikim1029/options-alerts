@@ -10,6 +10,7 @@ from strategy.sentiment import SectorSentimentStrategy
 from services.scanner.scanner_utils import get_active_tickers
 from encryption.encryptItems import encryptEtradeKeySecret
 from services.utils import logMessage
+from services.core.shutdown_handler import ShutdownManager
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""        # disable CUDA
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"

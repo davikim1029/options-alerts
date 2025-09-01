@@ -64,23 +64,24 @@ class ThreadManager:
             return threads_alive
             
             
-    def manage(self, start_hour=8, start_minute=30, end_hour=16, end_minute=30):
+    def manage(self, start_hour=8, start_minute=50, end_hour=8, end_minute=53):
         """Keeps workers active only during market hours."""
         
         try:
-            while not self.stop_event.is_set():
-                now = datetime.now()
-                within_hours = (
-                    (now.hour > start_hour or (now.hour == start_hour and now.minute >= start_minute))
-                    and (now.hour < end_hour or (now.hour == end_hour and now.minute < end_minute))
-                )
-                if within_hours:
-                    self.start_all()
-                else:
-                    threads_stopping = self.stop_all()
-                    if threads_stopping == 0:
-                        print("Sleeping")
-                time.sleep(60)
+          while True:
+            now = datetime.now()
+            within_hours = (
+              (now.hour > start_hour or (now.hour == start_hour and now.minute >= start_minute))
+              and (now.hour < end_hour or (now.hour == end_hour and now.minute < end_minute))
+              )
+              
+            if within_hours:
+              self.start_all()
+            else:
+              threads_stopping = self.stop_all()
+              if threads_stopping == 0:
+                print("Sleeping")
+              time.sleep(60)
         except KeyboardInterrupt:
             print("Received KeyboardInterrupt, stopping all threads...")
         except Exception as e:

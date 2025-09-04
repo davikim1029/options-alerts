@@ -30,8 +30,11 @@ class CacheManager:
         self.ttl_minutes = ttl_minutes
         self.autosave_interval = autosave_interval
 
-        ShutdownManager.init()
-        ShutdownManager.register(lambda reason=None: self._save_cache())
+        try:
+            ShutdownManager.register(lambda reason=None: self._save_cache())
+        except TypeError:
+            ShutdownManager.init(error_logger=logger.logMessage)
+            ShutdownManager.register(lambda reason=None: self._save_cache())
         self._load_cache()
 
     # ----------------------------

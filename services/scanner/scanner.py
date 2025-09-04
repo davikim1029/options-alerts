@@ -108,7 +108,7 @@ def run_scan(mode=None, consumer=None, debug=False):
     logger.logMessage("[Scanner] Initializing...")
 
     if consumer is None:
-        consumer = EtradeConsumer()
+        consumer = EtradeConsumer(sandbox=False, open_browser=False, debug=debug)
 
     caches = Caches()
 
@@ -178,7 +178,7 @@ def run_scan(mode=None, consumer=None, debug=False):
             "services/scanner/buy_scanner.py"
         ],
         start_time=time(9, 30),   # 9:30 AM
-        end_time=time(16, 0),     # 4:00 PM
+        end_time=time(17, 0),     # 4:00 PM
         cooldown_seconds=300      # wait 5 minutes before restarting
     )
 
@@ -196,7 +196,7 @@ def run_scan(mode=None, consumer=None, debug=False):
             "services/scanner/sell_scanner.py"
         ],
         start_time=time(9, 30),   # 9:30 AM
-        end_time=time(16, 0),     # 4:00 PM
+        end_time=time(17, 0),     # 4:00 PM
         cooldown_seconds=3600      # wait 5 minutes before restarting
     )
 
@@ -207,10 +207,12 @@ def run_scan(mode=None, consumer=None, debug=False):
     try:
         while not _MAIN_STOP.is_set():
             pyTime.sleep(0.5)
+        _request_shutdown("Main Loop stopped")
     except KeyboardInterrupt:
         _request_shutdown("KeyboardInterrupt")
     except Exception as e:
         _request_shutdown(f"Fatal error: {e}")
         sys.exit(1)
     finally:
+        _MAIN_STOP.clear() #Reset for new loop
         logger.logMessage("[Scanner] Exited main loop.")

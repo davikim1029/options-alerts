@@ -82,8 +82,7 @@ def main():
 
         # --- Mode Handling ---
         if mode == "scan":
-            consumer = EtradeConsumer(sandbox=useSandbox, open_browser=open_browser, debug=debug)
-            run_scan(mode=mode, consumer=consumer, debug=debug)
+            run_scan(mode=mode, debug=debug)
 
         elif mode == "refresh-token":
             force_generate_new_token()
@@ -91,6 +90,7 @@ def main():
         elif mode == "test-api":
             consumer = EtradeConsumer(sandbox=useSandbox, open_browser=open_browser, debug=debug)
             run_api_test(consumer)
+        
 
         elif mode == "test-newsapi":
             consumer = EtradeConsumer(sandbox=useSandbox, open_browser=open_browser, debug=debug)

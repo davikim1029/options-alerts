@@ -23,7 +23,7 @@ class Logger:
 
         # Console handler
         ch = logging.StreamHandler()
-        ch.setFormatter(logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s"))
+        ch.setFormatter(logging.Formatter("%(asctime)s: %(message)s"))
         self.logger.addHandler(ch)
 
         # Keep references

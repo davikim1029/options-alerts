@@ -19,6 +19,8 @@ class OptionContract:
     expiryDate: str
     strikePrice: float
     underlyingSymbol: str
+    positionId: Optional[float]
+    osiKey:Optional[str]
     delta: Optional[float]
     gamma: Optional[float]
     theta: Optional[float]

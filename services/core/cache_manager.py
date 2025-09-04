@@ -1,247 +1,229 @@
+# services/core/cache_manager.py
 import json
 import os
-from datetime import datetime,timedelta,timezone
-from threading import Thread, Lock
+from datetime import datetime, timedelta, timezone
+from threading import Lock
 from services.core.shutdown_handler import ShutdownManager
 from services.utils import logMessage
-import time
 
 
 class CacheManager:
-    def __init__(self,
-                 CACHE_DISPLAY_NAME:str,
-                 CACHE_FILE:str,
-                 CACHE_TTL_DAYS:float = None, 
-                 CACHE_TTL_HOURS:float = None,
-                 CACHE_TTL_MINS:float = None,
-                 INTERIM_SAVE_SECONDS:int = 60
-                 ):
-        self._cache = {}
-        
-        # Initialize shutdown manager once
-        ShutdownManager.init()
-        # Register this cache's save method to run on shutdown
-        
-        ShutdownManager.register(lambda reason=None: self._save_cache())
-        self._display_name:str = CACHE_DISPLAY_NAME
-        self._cache_file:str = CACHE_FILE
-        self._cache_ttl_days:int = CACHE_TTL_DAYS
-        self._cache_ttl_hours:float = CACHE_TTL_HOURS
-        self._cache_ttl_mins:float = CACHE_TTL_MINS
-        self._interim_save_seconds:int = INTERIM_SAVE_SECONDS
-        self._lock = Lock()  # thread-safety lock
-        self._load_cache()
-        
-        
-    def _load_cache(self):
-        if os.path.exists(self._cache_file):
-            try:
-                with open(self._cache_file, "r") as f:
-                    raw = json.load(f)
-                with self._lock:
-                    for key, cacheValue in raw.items():
-                        ts_str = cacheValue.get("Timestamp")
-                        value = cacheValue.get("Value")
-                        if ts_str is None:
-                            continue
-                        ts = datetime.fromisoformat(ts_str)
-                        if not self.is_expired(ts):  # ✅ use is_expired instead
-                            self._cache[key] = {"Value": value, "Timestamp": ts}
-            except json.JSONDecodeError:
-                logMessage(f"[{self._display_name}] cache file empty or corrupted, initializing empty cache")
-                self._cache = {}
-            except Exception as e:
-                logMessage(f"[{self._display_name}] failed to load cache: {e}")
-        else:
-            with open(self._cache_file, "w") as f:
-                json.dump({}, f)
+    """
+    Thread-safe cache manager with TTL, autosave, and JSON persistence.
+    """
 
+    def __init__(self,
+                 name: str,
+                 filepath: str,
+                 ttl_days: float = None,
+                 ttl_hours: float = None,
+                 ttl_minutes: float = None,
+                 autosave_interval: int = 60):
+        self._cache = {}
+        self._lock = Lock()
+
+        self.name = name
+        self.filepath = filepath
+        self.ttl_days = ttl_days
+        self.ttl_hours = ttl_hours
+        self.ttl_minutes = ttl_minutes
+        self.autosave_interval = autosave_interval
+
+        ShutdownManager.init()
+        ShutdownManager.register(lambda reason=None: self._save_cache())
+        self._load_cache()
+
+    # ----------------------------
+    # Cache Persistence
+    # ----------------------------
+    def _load_cache(self):
+        if not os.path.exists(self.filepath):
+            with open(self.filepath, "w") as f:
+                json.dump({}, f)
+            return
+
+        try:
+            with open(self.filepath, "r") as f:
+                raw = json.load(f)
+            with self._lock:
+                for key, data in raw.items():
+                    ts_str = data.get("Timestamp")
+                    value = data.get("Value")
+                    if ts_str is None:
+                        continue
+                    ts = datetime.fromisoformat(ts_str)
+                    if not self.is_expired(ts):
+                        self._cache[key] = {"Value": value, "Timestamp": ts}
+        except json.JSONDecodeError:
+            logMessage(f"[{self.name}] Cache file empty or corrupted, starting fresh")
+        except Exception as e:
+            logMessage(f"[{self.name}] Failed to load cache: {e}")
 
     def _save_cache(self):
         try:
             with self._lock:
-                # convert timestamps to isoformat for JSON serialization
-                serializable_cache = {
+                serializable = {
                     k: {"Value": v["Value"], "Timestamp": v["Timestamp"].isoformat()}
                     for k, v in self._cache.items()
                 }
-            # use default=str to handle non-serializable objects
-            with open(self._cache_file, "w") as f:
-                json.dump(serializable_cache, f, indent=2, default=str)
+            with open(self.filepath, "w") as f:
+                json.dump(serializable, f, indent=2, default=str)
         except Exception as e:
-            logMessage(f"[{self._display_name}] failed to save cache: {e}")
+            logMessage(f"[{self.name}] Failed to save cache: {e}")
 
     def autosave_loop(self, stop_event):
         while not stop_event.is_set():
             self._save_cache()
-            stop_event.wait(self._interim_save_seconds)
-        
-    def is_empty(self) -> bool:
-        return not bool(self._cache)
+            stop_event.wait(self.autosave_interval)
 
-
-        
-    def is_cached(self,key:str) -> bool:
-        with self._lock:
-            cacheValue = self._cache.get(key)
-            if cacheValue is not None:
-                stale = self.is_expired(cacheValue["Timestamp"])
-                if stale:
-                    del self._cache[key]
-                else:
-                    return True
-            return False
-        
-    
+    # ----------------------------
+    # TTL / Expiration
+    # ----------------------------
     def is_expired(self, timestamp):
-        # Default handling
-        days = self._cache_ttl_days
-        hours = self._cache_ttl_hours
-        mins = self._cache_ttl_mins
+        days = self.ttl_days if self.ttl_days is not None else 0
+        hours = self.ttl_hours if self.ttl_hours is not None else 0
+        minutes = self.ttl_minutes if self.ttl_minutes is not None else 0
 
-        if days is None and hours is None and mins is None:
-            # Case: no values provided → default to 30 days
-            days, hours, mins = 30, 0, 0
-        elif (days is not None or hours is not None):
-            # Case: days/hours provided
-            if days is None:
-                days = 0
-            if hours is None:
-                hours = 0
-            if mins is None:
-                mins = 0
-        else:
-            # Case: only mins provided
-            days = 0
-            hours = 0
-            mins = mins if mins is not None else 0
+        if days == 0 and hours == 0 and minutes == 0:
+            days = 30  # default 30 days
 
-        # Compute TTL as timedelta
-        ttl = timedelta(days=days, hours=hours, minutes=mins)
+        ttl = timedelta(days=days, hours=hours, minutes=minutes)
+        return datetime.now(timezone.utc) - timestamp > ttl
 
-        # Compare current time to timestamp
-        now = datetime.now(timezone.utc)
-        return now - timestamp > ttl
-
-    
-    def add(self, key: str, value):
+    # ----------------------------
+    # Public Cache Methods
+    # ----------------------------
+    def add(self, key, value):
         with self._lock:
-            nested_value = {
-                "Value": self.tuples_to_nested_dict(value),
+            self._cache[key] = {
+                "Value": self._convert_nested_tuples(value),
                 "Timestamp": datetime.now(timezone.utc)
             }
-            self._cache[key] = nested_value
-            
-    def get(self, key: str):
+
+    def get(self, key):
         if self.is_cached(key):
             return self._cache[key]["Value"]
         return None
+
+    def is_cached(self, key):
+        with self._lock:
+            item = self._cache.get(key)
+            if item:
+                if self.is_expired(item["Timestamp"]):
+                    del self._cache[key]
+                    return False
+                return True
+            return False
 
     def clear(self):
         with self._lock:
             self._cache.clear()
             self._save_cache()
-            
-    def tuples_to_nested_dict(self,d):
-        if not isinstance(d, dict):
-            return d  # not a dict, just return it as-is
 
+    def is_empty(self):
+        return not bool(self._cache)
+
+    # ----------------------------
+    # Utility Methods
+    # ----------------------------
+    def _convert_nested_tuples(self, value):
+        if not isinstance(value, dict):
+            return value
         nested = {}
-        for key, value in d.items():
-            if not isinstance(key, tuple):
-                nested[key] = value
-                continue
-
-            current = nested
-            for k in key[:-1]:
-                current = current.setdefault(k, {})
-            current[key[-1]] = value
+        for key, val in value.items():
+            if isinstance(key, tuple):
+                current = nested
+                for k in key[:-1]:
+                    current = current.setdefault(k, {})
+                current[key[-1]] = val
+            else:
+                nested[key] = val
         return nested
 
-            
-    def maybe_convert_tuples(self,value):
+    def maybe_convert_tuples(self, value):
         if isinstance(value, dict) and any(isinstance(k, tuple) for k in value.keys()):
-            return self.tuples_to_nested_dict(value)
+            return self._convert_nested_tuples(value)
         return value
 
 
-        
-
+# ----------------------------
+# Concrete Caches
+# ----------------------------
 class IgnoreTickerCache(CacheManager):
     def __init__(self):
-        IGNORE_CACHE_FILE = "cache/ignore_tickers.json"
-        IGNORE_CACHE_TTL_DAYS = 30
-        IGNORE_CACHE_SAVE_INTERVAL_SECONDS = 60
-        super().__init__(
-            CACHE_DISPLAY_NAME="IgnoreTicker Cache",
-            CACHE_FILE=IGNORE_CACHE_FILE,
-            CACHE_TTL_DAYS=IGNORE_CACHE_TTL_DAYS,
-            INTERIM_SAVE_SECONDS=IGNORE_CACHE_SAVE_INTERVAL_SECONDS
-        )      
+        super().__init__("IgnoreTicker Cache", "cache/ignore_tickers.json", ttl_days=30, autosave_interval=60)
+
 
 class BoughtTickerCache(CacheManager):
     def __init__(self):
-        BOUGHT_CACHE_FILE = "cache/bought_tickers.json"
-        BOUGHT_CACHE_TTL_DAYS = 30
-        BOUGHT_CACHE_SAVE_INTERVAL_SECONDS = 60
-        super().__init__(
-            CACHE_DISPLAY_NAME="BoughtTicker Cache",
-            CACHE_FILE=BOUGHT_CACHE_FILE,
-            CACHE_TTL_DAYS=BOUGHT_CACHE_TTL_DAYS,
-            INTERIM_SAVE_SECONDS=BOUGHT_CACHE_SAVE_INTERVAL_SECONDS
-        )               
-        
+        super().__init__("BoughtTicker Cache", "cache/bought_tickers.json", ttl_days=30, autosave_interval=60)
+
+
 class NewsApiCache(CacheManager):
     def __init__(self):
-        NEWSAPI_CACHE_FILE = "cache/newsapi_sentiment.json"
-        NEWSAPI_CACHE_TTL_HOURS = 6
-        NEWSAPI_CACHE_SAVE_INTERVAL_SECONDS = 60
-        super().__init__(
-            CACHE_DISPLAY_NAME="NewsApi Cache",
-            CACHE_FILE=NEWSAPI_CACHE_FILE,
-            CACHE_TTL_HOURS= NEWSAPI_CACHE_TTL_HOURS,
-            INTERIM_SAVE_SECONDS=NEWSAPI_CACHE_SAVE_INTERVAL_SECONDS
-        )               
-        
+        super().__init__("NewsApi Cache", "cache/newsapi_sentiment.json", ttl_hours=6, autosave_interval=60)
+
+
 class RateLimitCache(CacheManager):
     def __init__(self):
-        RATELIMIT_CACHE_FILE = "cache/ratelimit_sentiment.json"
-        RATELIMIT_CACHE_TTL_DAYS = 30
-        RATELIMIT_CACHE_SAVE_INTERVAL_SECONDS = 60
-        super().__init__(
-            CACHE_DISPLAY_NAME="Rate Limit Cache",
-            CACHE_FILE=RATELIMIT_CACHE_FILE,
-            CACHE_TTL_DAYS=RATELIMIT_CACHE_TTL_DAYS,
-            INTERIM_SAVE_SECONDS=RATELIMIT_CACHE_SAVE_INTERVAL_SECONDS
-        )
-        
+        super().__init__("RateLimit Cache", "cache/ratelimit_sentiment.json", ttl_days=30, autosave_interval=60)
+
+
 class TickerCache(CacheManager):
     def __init__(self):
-        TICKER_CACHE_FILE = "cache/tickers.json"
-        TICKER_CACHE_TTL_DAYS = 30
-        super().__init__(
-            CACHE_DISPLAY_NAME="Ticker Cache",
-            CACHE_FILE=TICKER_CACHE_FILE,
-            CACHE_TTL_DAYS=TICKER_CACHE_TTL_DAYS,
-        )
-        
+        super().__init__("Ticker Cache", "cache/tickers.json", ttl_days=30)
+
+
 class EvalCache(CacheManager):
     def __init__(self):
-        EVAL_CACHE_FILE = "cache/evaluated.json"
-        #EVAL_CACHE_TTL_HOURS = 4
-        EVAL_CACHE_TTL_MINS = 5
-        super().__init__(
-            CACHE_DISPLAY_NAME="Evaluated Cache",
-            CACHE_FILE=EVAL_CACHE_FILE,
-            CACHE_TTL_MINS=EVAL_CACHE_TTL_MINS
-        )
+        super().__init__("Eval Cache", "cache/evaluated.json", ttl_minutes=5)
+
 
 class LastTickerCache(CacheManager):
     def __init__(self):
-        LASTTICKER_CACHE_FILE = "cache/last_ticker.json"
-        LASTTICKER_CACHE_TTL_DAYS = 1
-        super().__init__(
-            CACHE_DISPLAY_NAME="Last Ticker Cache",
-            CACHE_FILE=LASTTICKER_CACHE_FILE,
-            CACHE_TTL_DAYS=LASTTICKER_CACHE_TTL_DAYS
-        )
+        super().__init__("LastTicker Cache", "cache/last_ticker.json", ttl_days=1)
+
+
+# ----------------------------
+# Unified Cache Container
+# ----------------------------
+class Caches:
+    """
+    One container for all caches to simplify function signatures and ThreadManager integration.
+    """
+    def __init__(self):
+        self.ignore = IgnoreTickerCache()
+        self.bought = BoughtTickerCache()
+        self.news = NewsApiCache()
+        self.rate = RateLimitCache()
+        self.ticker = TickerCache()
+        self.eval = EvalCache()
+        self.last_seen = LastTickerCache()
+
+    # Return list of all caches (for loops in scanner)
+    def all_caches(self):
+        return [
+            self.ignore,
+            self.bought,
+            self.news,
+            self.rate,
+            self.ticker,
+            self.eval,
+            self.last_seen
+        ]
+
+    # Return tuples for autosave loops (for ThreadManager)
+    def all_autosave_loops(self):
+        return [
+            (self.ignore.autosave_loop, "Ignore Cache Autosave"),
+            (self.bought.autosave_loop, "Bought Cache Autosave"),
+            (self.news.autosave_loop, "NewsAPI Cache Autosave"),
+            (self.rate.autosave_loop, "RateLimit Cache Autosave"),
+            (self.ticker.autosave_loop, "Ticker Cache Autosave"),
+            (self.last_seen.autosave_loop, "Last Ticker Cache Autosave"),
+        ]
+
+    # Clear all caches
+    def clear_all(self):
+        for cache in self.all_caches():
+            cache.clear()

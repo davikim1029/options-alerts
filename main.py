@@ -4,7 +4,7 @@ import argparse
 from dotenv import load_dotenv
 from services.apitest import run_api_test
 from services.scanner.scanner import run_scan
-from services.etrade_consumer import EtradeConsumer,refresh_token
+from services.etrade_consumer import EtradeConsumer, force_generate_new_token
 from services.news_aggregator import aggregate_headlines_smart
 from strategy.sentiment import SectorSentimentStrategy
 from services.scanner.scanner_utils import get_active_tickers
@@ -12,17 +12,22 @@ from encryption.encryptItems import encryptEtradeKeySecret
 from services.utils import logMessage
 from services.core.shutdown_handler import ShutdownManager
 
-os.environ["CUDA_VISIBLE_DEVICES"] = ""        # disable CUDA
+# Disable GPU / MPS fallback
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
+
 def get_mode_from_prompt():
+    """
+    Interactive mode selection for CLI.
+    """
     modes = [
         ("scan", "Run scanner (alerts only)"),
-        ("refresh-token","Refresh the Etrade token"),
+        ("refresh-token", "Refresh the Etrade token"),
         ("test-api", "Interactive test of E*TRADE API functions"),
         ("encrypt-etrade", "Encrypt Etrade Key And Secret"),
-        ("test-newsapi","Hit a NewsApi Api"),
-        ("quit","Exit program")
+        ("test-newsapi", "Hit a NewsApi API"),
+        ("quit", "Exit program")
     ]
 
     print("📋 Available modes:")
@@ -31,7 +36,7 @@ def get_mode_from_prompt():
     
     choice = input("\nEnter mode number (default 1): ").strip()
     if not choice:
-        return "scan"  # default
+        return "scan"
     try:
         index = int(choice) - 1
         if 0 <= index < len(modes):
@@ -41,10 +46,13 @@ def get_mode_from_prompt():
     print("Invalid choice, defaulting to 'scan'.")
     return "scan"
 
+
 def main():
+    # Ensure directories exist
     os.makedirs("cache", exist_ok=True)
     logMessage("Script started.")
     
+    # Initialize shutdown manager
     ShutdownManager.init(error_logger=logMessage)
 
     load_dotenv()
@@ -63,42 +71,36 @@ def main():
         debug = False
 
         # Convert sandbox argument to boolean
+        useSandbox = False
         if args.sandbox is not None:
             useSandbox = args.sandbox.lower() in ["true", "1", "yes"] 
-        else:
-            useSandbox = False           
             
+        # Convert web_browser argument to boolean
+        open_browser = True
         if args.web_browser is not None:
-            open_browser = args.web_browser.lower() in ["true", "1","yes"]
-        else:
-            open_browser = True
+            open_browser = args.web_browser.lower() in ["true", "1", "yes"]
 
+        # --- Mode Handling ---
+        if mode == "scan":
+            consumer = EtradeConsumer(sandbox=useSandbox, open_browser=open_browser, debug=debug)
+            run_scan(mode=mode, consumer=consumer, debug=debug)
 
-        if mode in ["scan"]:
-            consumer = EtradeConsumer(sandbox=useSandbox,open_browser=open_browser,debug=debug)
-            run_scan(mode=mode, consumer=consumer,debug=debug)
-            
-        elif mode in ["refresh-token"]:
-            refresh_token()
-            
+        elif mode == "refresh-token":
+            force_generate_new_token()
 
         elif mode == "test-api":
-            consumer = EtradeConsumer(sandbox=useSandbox)
+            consumer = EtradeConsumer(sandbox=useSandbox, open_browser=open_browser, debug=debug)
             run_api_test(consumer)
-            
+
         elif mode == "test-newsapi":
-            consumer = EtradeConsumer(sandbox=useSandbox)
+            consumer = EtradeConsumer(sandbox=useSandbox, open_browser=open_browser, debug=debug)
             tickers = get_active_tickers()
-            #sentimentHandler = SectorSentimentStrategy()
             cnt = 0
             for ticker in tickers:
-                try: 
+                try:
                     headlines = aggregate_headlines_smart(ticker)
-
-                    cnt = +cnt+1
-                    # Convert JSON string → Python dict
+                    cnt += 1
                     print(headlines)
-                    
                 except Exception as e:
                     print(f"Error occurred for {ticker} | Error: {e}") 
 
@@ -107,6 +109,7 @@ def main():
             
         else:
             print("Invalid mode selected.")
-            
+
+
 if __name__ == "__main__":
     main()

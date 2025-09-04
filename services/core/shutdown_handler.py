@@ -1,46 +1,72 @@
-# shutdown_manager.py
-import atexit
-import signal
-import sys
-from threading import Lock
+# services/core/shutdown_handler.py
+import threading
+from typing import Callable, List
 
 class ShutdownManager:
-    _callbacks = []
-    _lock = Lock()
-    _initialized = False
-    _exit_reason = "normal"
-    _error_logger = None  # function to call on callback errors
+    _stop_event: threading.Event = None
+    _error_logger: Callable = None
+    _initialized: bool = False
+    _callbacks: List[Callable[[str], None]] = []
 
     @classmethod
-    def init(cls,error_logger=None):
+    def init(cls, error_logger=None, stop_event=None):
         if cls._initialized:
+            cls.log("[ShutdownManager] Already initialized.")
             return
-        cls._initialized = True
+
+        cls._stop_event = stop_event or threading.Event()
         cls._error_logger = error_logger
-        atexit.register(cls._run_callbacks)
-        signal.signal(signal.SIGINT, cls._handle_signal)
-        signal.signal(signal.SIGTERM, cls._handle_signal)
+        cls._callbacks = []
+        cls._initialized = True
+        cls.log(f"[ShutdownManager] Initialized. Stop event set: {cls._stop_event.is_set()}")
 
     @classmethod
-    def register(cls, callback):
-        with cls._lock:
-            cls._callbacks.append(callback)
+    def register(cls, callback: Callable[[str], None]):
+        """
+        Register a callback to be called when stop_all() is triggered.
+        Callback must accept a single string argument: reason
+        """
+        if not callable(callback):
+            raise ValueError("callback must be callable")
+        cls._callbacks.append(callback)
+        cls.log(f"[ShutdownManager] Callback registered: {callback}")
 
     @classmethod
-    def _run_callbacks(cls):
-        with cls._lock:
-            for cb in cls._callbacks:
-                try:
-                    cb(cls._exit_reason)
-                except Exception as e:
-                    if cls._error_logger:
-                        cls._error_logger(f"[ShutdownManager] Error running callback {cb}: {e}")
-                    else:
-                        print(f"[ShutdownManager] Error running callback {cb}: {e}")
+    def stop_all(cls, reason="Manual shutdown"):
+        if cls._stop_event:
+            cls._stop_event.set()
+        cls.log(f"[ShutdownManager] stop_all triggered: {reason}")
+
+        # Execute registered callbacks
+        for cb in cls._callbacks:
+            try:
+                cb(reason)
+            except Exception as e:
+                cls.log(f"[ShutdownManager] Callback error: {e}")
 
     @classmethod
-    def _handle_signal(cls, signum, frame):
-        signal_names = {signal.SIGINT: "SIGINT (Ctrl+C)", signal.SIGTERM: "SIGTERM"}
-        cls._exit_reason = signal_names.get(signum, f"Signal {signum}")
-        cls._run_callbacks()
-        sys.exit(0)
+    def reset(cls):
+        cls._stop_event = None
+        cls._error_logger = None
+        cls._callbacks = []
+        cls._initialized = False
+        cls.log("[ShutdownManager] Reset complete.")
+
+    @classmethod
+    def log(cls, msg):
+        if cls._error_logger:
+            try:
+                cls._error_logger(msg)
+            except Exception:
+                print(f"[ShutdownManager-log-error] Failed logging msg: {msg}")
+        else:
+            print(msg)
+
+    @classmethod
+    def stop_event(cls):
+        return cls._stop_event
+
+    @classmethod
+    def wait_for_stop(cls, timeout=None):
+        if cls._stop_event:
+            cls._stop_event.wait(timeout)

@@ -1,18 +1,25 @@
-# api_worker.py
+# services/threading/api_worker.py
 import queue
 import time
+import threading
 from requests import Session
 import enum
 from dataclasses import dataclass
 from typing import Optional, Any
 import requests
 
+# ---------------------------
+# HTTP method enum
+# ---------------------------
 class HttpMethod(enum.Enum):
     GET = "GET"
     PUT = "PUT"
     POST = "POST"
     DELETE = "DELETE"
 
+# ---------------------------
+# HTTP result container
+# ---------------------------
 @dataclass
 class HttpResult:
     ok: bool
@@ -21,22 +28,24 @@ class HttpResult:
     error: Optional[str] = None
     response: Optional[requests.Response] = None
 
+# ---------------------------
+# ApiWorker class
+# ---------------------------
 class ApiWorker:
     def __init__(self, session: Session, min_interval: float = 1.0):
         self.session = session
         self._queue = queue.Queue()
         self._min_interval = min_interval
-        self._last_call = 0
+        self._last_call = 0.0
+        self._lock = threading.Lock()
 
     def _worker(self, stop_event):
-        """Worker loop to process HTTP requests from the queue."""
         while not stop_event.is_set():
             try:
                 method, url, kwargs, result = self._queue.get(timeout=1)
             except queue.Empty:
-                continue  # periodically check stop_event
+                continue
 
-            # Throttle requests
             now = time.time()
             elapsed = now - self._last_call
             if elapsed < self._min_interval:
@@ -44,6 +53,7 @@ class ApiWorker:
             self._last_call = time.time()
 
             try:
+                r = None
                 if method == HttpMethod.GET:
                     r = self.session.get(url, **kwargs)
                 elif method == HttpMethod.PUT:
@@ -56,6 +66,7 @@ class ApiWorker:
                     raise ValueError(f"Unsupported HTTP method: {method}")
 
                 r.raise_for_status()
+                # Automatically parse JSON if applicable
                 result.append(HttpResult(ok=True, status_code=r.status_code, data=r, response=r))
 
             except requests.exceptions.HTTPError as e:
@@ -70,6 +81,7 @@ class ApiWorker:
 
             self._queue.task_done()
 
+
     def call_api(self, method: HttpMethod, url: str, **kwargs) -> HttpResult:
         """Queue an API call and wait for result synchronously."""
         result = []
@@ -79,3 +91,19 @@ class ApiWorker:
         if isinstance(res, Exception):
             raise res
         return res
+
+# ---------------------------
+# Module-level singleton
+# ---------------------------
+_worker_instance: Optional[ApiWorker] = None
+
+def init_worker(session: Session, min_interval: float = 1.0):
+    """Initialize the module-level ApiWorker singleton."""
+    global _worker_instance
+    _worker_instance = ApiWorker(session, min_interval=min_interval)
+
+def get_worker() -> ApiWorker:
+    """Get the module-level ApiWorker singleton."""
+    if _worker_instance is None:
+        raise RuntimeError("ApiWorker not initialized. Call init_worker() first.")
+    return _worker_instance

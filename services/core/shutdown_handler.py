@@ -21,7 +21,7 @@ class ShutdownManager:
         cls.log(f"[ShutdownManager] Initialized. Stop event set: {cls._stop_event.is_set()}")
 
     @classmethod
-    def register(cls, callback: Callable[[str], None]):
+    def register(cls,name:str, callback: Callable[[str], None]):
         """
         Register a callback to be called when stop_all() is triggered.
         Callback must accept a single string argument: reason
@@ -29,7 +29,7 @@ class ShutdownManager:
         if not callable(callback):
             raise ValueError("callback must be callable")
         cls._callbacks.append(callback)
-        cls.log(f"[ShutdownManager] Callback registered: {callback}")
+        cls.log(f"[ShutdownManager] Callback registered: {name}")
 
     @classmethod
     def stop_all(cls, reason="Manual shutdown"):

@@ -125,10 +125,10 @@ def run_scan(mode=None, consumer=None, debug=False):
         _request_shutdown(reason or "ShutdownManager")
 
     try:
-        ShutdownManager.register(_shutdown_callback)
+        ShutdownManager.register("Request Shutdown",_shutdown_callback)
     except TypeError:
         ShutdownManager.init(error_logger=logger.logMessage)
-        ShutdownManager.register(_shutdown_callback)
+        ShutdownManager.register("Request Shutdown",_shutdown_callback)
 
     # ---------------------------
     # Start threads with hot-reload support

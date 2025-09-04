@@ -31,10 +31,10 @@ class CacheManager:
         self.autosave_interval = autosave_interval
 
         try:
-            ShutdownManager.register(lambda reason=None: self._save_cache())
+            ShutdownManager.register(self.name, lambda reason=None: self._save_cache())
         except TypeError:
             ShutdownManager.init(error_logger=logger.logMessage)
-            ShutdownManager.register(lambda reason=None: self._save_cache())
+            ShutdownManager.register(self.name, lambda reason=None: self._save_cache())
         self._load_cache()
 
     # ----------------------------

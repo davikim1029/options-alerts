@@ -5,7 +5,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from services.core.shutdown_handler import ShutdownManager
-from services.utils import logMessage
+from services.logging.logger_singleton import logger
 
 
 class CacheManager:
@@ -56,9 +56,9 @@ class CacheManager:
                     if not self.is_expired(ts):
                         self._cache[key] = {"Value": value, "Timestamp": ts}
         except json.JSONDecodeError:
-            logMessage(f"[{self.name}] Cache file empty or corrupted, starting fresh")
+            logger.logMessage(f"[{self.name}] Cache file empty or corrupted, starting fresh")
         except Exception as e:
-            logMessage(f"[{self.name}] Failed to load cache: {e}")
+            logger.logMessage(f"[{self.name}] Failed to load cache: {e}")
 
     def _save_cache(self):
         try:
@@ -79,7 +79,7 @@ class CacheManager:
             os.replace(tmp.name, self.filepath)
 
         except Exception as e:
-            logMessage(f"[{self.name}] Failed to save cache: {e}")
+            logger.logMessage(f"[{self.name}] Failed to save cache: {e}")
 
     def autosave_loop(self, stop_event):
         while not stop_event.is_set():

@@ -2,24 +2,10 @@
 import json
 import os
 import time
-import logging
 from dataclasses import is_dataclass, fields, is_dataclass
 from typing import get_type_hints, List, Union, TypeVar, Dict, Any, Type
 from services.logging.logger_singleton import logger
 
-# ThreadManager logger
-log = logging.getLogger("ThreadManager")
-log.setLevel(logging.INFO)
-
-# Prevent double logging
-log.propagate = False
-
-# Console handler
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s")
-ch.setFormatter(formatter)
-log.addHandler(ch)
 
 def load_json_cache(file_path, max_age_seconds=86400):
     if not os.path.exists(file_path):
@@ -120,9 +106,3 @@ def from_dict(cls: Type[T], data: Union[Dict[str, Any], List[Any]]) -> T:
             init_values[field_name] = value
 
     return cls(**init_values)
-
-
-def logMessage(message,printMessage:bool = True):
-    logger.log(message=message)
-    if printMessage:
-        log.info(message)

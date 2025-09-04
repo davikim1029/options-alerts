@@ -7,7 +7,7 @@ from pathlib import Path
 import time as pyTime
 from datetime import time
 
-from services.utils import logMessage
+from services.logging.logger_singleton import logger
 from services.etrade_consumer import EtradeConsumer
 from services.core.shutdown_handler import ShutdownManager
 from services.core.cache_manager import Caches
@@ -54,7 +54,7 @@ def input_listener(stop_event):
                         continue
                     user_input_queue.put(line.rstrip("\n"))
         except Exception as e:
-            logMessage(f"[Input Listener] Error: {e}")
+            logger.logMessage(f"[Input Listener] Error: {e}")
             pyTime.sleep(0.1)
 
 def input_processor(stop_event):
@@ -64,7 +64,7 @@ def input_processor(stop_event):
         except queue.Empty:
             continue
         except Exception as e:
-            logMessage(f"[Input Processor] dequeue error: {e}")
+            logger.logMessage(f"[Input Processor] dequeue error: {e}")
             continue
 
         try:
@@ -72,15 +72,15 @@ def input_processor(stop_event):
                 continue
             lower = cmd.strip().lower()
             if lower == "exit":
-                logMessage("[Input Processor] 'exit' received → shutting down")
+                logger.logMessage("[Input Processor] 'exit' received → shutting down")
                 _request_shutdown("User exit command")
                 return
             elif lower == "stats":
-                logMessage("[Input Processor] stats command received (not implemented)")
+                logger.logMessage("[Input Processor] stats command received (not implemented)")
             else:
-                logMessage(f"[Input Processor] Unknown command: {cmd}")
+                logger.logMessage(f"[Input Processor] Unknown command: {cmd}")
         except Exception as e:
-            logMessage(f"[Input Processor] Error handling '{cmd}': {e}")
+            logger.logMessage(f"[Input Processor] Error handling '{cmd}': {e}")
 
 # ---------------------------
 # Cache autosave wrapper
@@ -89,14 +89,14 @@ def _autosave_loop(stop_event, cache):
     try:
         cache.autosave_loop(stop_event)
     except Exception as e:
-        logMessage(f"[Autosave] Error in '{getattr(cache,'name',cache)}': {e}")
+        logger.logMessage(f"[Autosave] Error in '{getattr(cache,'name',cache)}': {e}")
 
 # ---------------------------
 # Shutdown
 # ---------------------------
 def _request_shutdown(reason="Unknown"):
     try:
-        logMessage(f"[Scanner] Shutdown requested: {reason}")
+        logger.logMessage(f"[Scanner] Shutdown requested: {reason}")
         ThreadManager.instance().stop_all()
     finally:
         _MAIN_STOP.set()
@@ -105,7 +105,7 @@ def _request_shutdown(reason="Unknown"):
 # Main scanner runner
 # ---------------------------
 def run_scan(mode=None, consumer=None, debug=False):
-    logMessage("[Scanner] Initializing...")
+    logger.logMessage("[Scanner] Initializing...")
 
     if consumer is None:
         consumer = EtradeConsumer()
@@ -119,15 +119,15 @@ def run_scan(mode=None, consumer=None, debug=False):
 
     watch_dir = Path(__file__).parent.resolve()
     manager.start_watcher(watch_dir)
-    logMessage(f"[Scanner] Watchdog started in: {watch_dir}")
+    logger.logMessage(f"[Scanner] Watchdog started in: {watch_dir}")
 
     def _shutdown_callback(reason=None):
         _request_shutdown(reason or "ShutdownManager")
 
     try:
-        ShutdownManager.init(error_logger=logMessage)
+        ShutdownManager.init(error_logger=logger.logMessage)
     except TypeError:
-        ShutdownManager.init(error_logger=logMessage)
+        ShutdownManager.init(error_logger=logger.logMessage)
     ShutdownManager.register(_shutdown_callback)
 
     # ---------------------------
@@ -202,7 +202,7 @@ def run_scan(mode=None, consumer=None, debug=False):
 
 
 
-    logMessage("[Scanner] All threads started. Press Ctrl+C or type 'exit' to stop.")
+    logger.logMessage("[Scanner] All threads started. Press Ctrl+C or type 'exit' to stop.")
 
     try:
         while not _MAIN_STOP.is_set():
@@ -213,4 +213,4 @@ def run_scan(mode=None, consumer=None, debug=False):
         _request_shutdown(f"Fatal error: {e}")
         sys.exit(1)
     finally:
-        logMessage("[Scanner] Exited main loop.")
+        logger.logMessage("[Scanner] Exited main loop.")

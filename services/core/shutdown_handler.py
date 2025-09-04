@@ -56,7 +56,7 @@ class ShutdownManager:
     def log(cls, msg):
         if cls._error_logger:
             try:
-                cls._error_logger(msg)
+                cls._error_logger(msg)  # calls logger.logMessage(msg)
             except Exception:
                 print(f"[ShutdownManager-log-error] Failed logging msg: {msg}")
         else:

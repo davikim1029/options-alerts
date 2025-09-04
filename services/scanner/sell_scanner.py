@@ -1,7 +1,7 @@
 # services/scanner/sell_scanner.py
 import time
 from typing import Optional, List
-from services.utils import logMessage
+from services.logging.logger_singleton import logger
 from services.scanner.scanner_utils import get_next_run_date
 from services.alerts import send_alert
 from models.generated.Position import Position
@@ -37,16 +37,16 @@ def run_sell_scan(
         positions: Optional[List[Position]] = consumer.get_positions()
 
         if not positions:
-            logMessage("[Sell Scanner] No positions to evaluate.")
+            logger.logMessage("[Sell Scanner] No positions to evaluate.")
             return
 
-        logMessage(f"[Sell Scanner] Starting | Open Positions: {len(positions)}")
+        logger.logMessage(f"[Sell Scanner] Starting | Open Positions: {len(positions)}")
 
         for pos in positions:
             if stop_event.is_set():
                 if last_ticker_cache:
                     last_ticker_cache._save_cache()
-                logMessage("[Sell Scanner] Stopping early due to stop_event")
+                logger.logMessage("[Sell Scanner] Stopping early due to stop_event")
                 return
 
             try:
@@ -61,7 +61,7 @@ def run_sell_scan(
                     if not success:
                         should_sell = False
                         if debug:
-                            logMessage(f"[Sell Scanner] {pos.Product['symbol']} fails {primary.name}: {error}")
+                            logger.logMessage(f"[Sell Scanner] {pos.Product['symbol']} fails {primary.name}: {error}")
 
                 # Secondary strategies
                 if should_sell:
@@ -90,9 +90,9 @@ def run_sell_scan(
                 #    eval_cache.add(pos.Product['symbol'], eval_result)
 
             except Exception as e:
-                logMessage(f"[Sell Scanner Error] {pos.Product['symbol']}: {e}")
+                logger.logMessage(f"[Sell Scanner Error] {pos.Product['symbol']}: {e}")
 
-        logMessage(f"[Sell Scanner] Completed. Next run: {get_next_run_date(seconds_to_wait)}")
+        logger.logMessage(f"[Sell Scanner] Completed. Next run: {get_next_run_date(seconds_to_wait)}")
 
     except Exception as e:
-        logMessage(f"[Sell Scanner] Fatal error: {e}")
+        logger.logMessage(f"[Sell Scanner] Fatal error: {e}")

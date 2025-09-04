@@ -1,31 +1,40 @@
+# services/logging/logger.py
 import logging
 import os
 from datetime import datetime
-from services.core.shutdown_handler import ShutdownManager
-
 
 class Logger:
     def __init__(self, log_dir="logs", prefix="log"):
-        self.log_dir = log_dir
         os.makedirs(log_dir, exist_ok=True)
-
         today = datetime.now().strftime("%Y-%m-%d")
         log_file = os.path.join(log_dir, f"{prefix}_{today}.log")
 
         self.logger = logging.getLogger("DailyLogger")
         self.logger.setLevel(logging.INFO)
 
-        if not self.logger.handlers:
-            handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
-            formatter = logging.Formatter("%(asctime)s - %(message)s", "%Y-%m-%d %H:%M:%S")
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
+        # Remove old handlers
+        for h in self.logger.handlers[:]:
+            self.logger.removeHandler(h)
 
-        ShutdownManager.init(error_logger=self.log)
-        ShutdownManager.register(self._log_exit)
+        # File handler
+        fh = logging.FileHandler(log_file, mode="a", encoding="utf-8")
+        fh.setFormatter(logging.Formatter("%(asctime)s - %(message)s", "%Y-%m-%d %H:%M:%S"))
+        self.logger.addHandler(fh)
 
-    def log(self, message):
+        # Console handler
+        ch = logging.StreamHandler()
+        ch.setFormatter(logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s"))
+        self.logger.addHandler(ch)
+
+        # Keep references
+        self._file_handler = fh
+        self._console_handler = ch
+
+    def logMessage(self, message, console=True, file=True):
+        # Temporarily enable/disable handlers
+        self._file_handler.setLevel(logging.INFO if file else logging.CRITICAL+1)
+        self._console_handler.setLevel(logging.INFO if console else logging.CRITICAL+1)
         self.logger.info(message)
 
-    def _log_exit(self, reason):
-        self.logger.info(f"Script terminated ({reason}).")
+    def _log_exit(self, reason=None):
+        self.log(f"Script terminated ({reason})")

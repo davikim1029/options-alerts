@@ -9,7 +9,7 @@ from services.news_aggregator import aggregate_headlines_smart
 from strategy.sentiment import SectorSentimentStrategy
 from services.scanner.scanner_utils import get_active_tickers
 from encryption.encryptItems import encryptEtradeKeySecret
-from services.utils import logMessage
+from services.logging.logger_singleton import logger
 from services.core.shutdown_handler import ShutdownManager
 
 # Disable GPU / MPS fallback
@@ -50,10 +50,10 @@ def get_mode_from_prompt():
 def main():
     # Ensure directories exist
     os.makedirs("cache", exist_ok=True)
-    logMessage("Script started.")
+    logger.logMessage("Script started.")
     
     # Initialize shutdown manager
-    ShutdownManager.init(error_logger=logMessage)
+    ShutdownManager.init(error_logger=logger.logMessage)
 
     load_dotenv()
     parser = argparse.ArgumentParser(description="OptionsAlerts CLI")

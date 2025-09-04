@@ -1,6 +1,5 @@
 # services/scanner/buy_loop.py
-import time as pyTime
-from services.utils import logMessage
+from services.logging.logger_singleton import logger
 from services.scanner.buy_scanner import run_buy_scan  # your main buy logic
 
 def buy_loop(stop_event, **kwargs):
@@ -12,10 +11,10 @@ def buy_loop(stop_event, **kwargs):
     consumer = kwargs.get("consumer")
     caches = kwargs.get("caches")
     debug = kwargs.get("debug", False)
-    logMessage("[Buy Scanner] Starting run_buy_scan")
+    logger.logMessage("[Buy Scanner] Starting run_buy_scan")
 
     try:
         # Your main buy scanning logic goes here
         run_buy_scan(stop_event=stop_event, consumer=consumer, caches=caches, debug=debug)
     except Exception as e:
-        logMessage(f"[Buy Scanner Error] {e}")
+        logger.logMessage(f"[Buy Scanner Error] {e}")

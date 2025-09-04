@@ -3,15 +3,13 @@ import sys
 import threading
 import importlib
 import importlib.util
-import logging
 import time as pytime
-from services.utils import logMessage
+from services.logging.logger_singleton import logger
 from datetime import datetime, time
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-log = logging.getLogger("ThreadManager")
 
 class ThreadWrapper:
     def __init__(self, name, 
@@ -69,10 +67,10 @@ class ThreadWrapper:
                 # ⬇️ inline version of old _run_wrapper
                 self._target_func(*self._args, stop_event=self._stop_event, **self._kwargs)
             except Exception as e:
-                logMessage(f"[ThreadWrapper][{self.name}] Crashed: {e}")
+                logger.logMessage(f"[ThreadWrapper][{self.name}] Crashed: {e}")
 
             if self.cooldown_seconds:
-                logMessage(f"[ThreadWrapper][{self.name}] Cooling down for {self.cooldown_seconds/60} mins")
+                logger.logMessage(f"[ThreadWrapper][{self.name}] Cooling down for {self.cooldown_seconds/60} mins")
                 waited = 0
                 while waited < self.cooldown_seconds and not self._stop_event.is_set():
                     pytime.sleep(1)
@@ -123,21 +121,21 @@ class ThreadManager:
         
         existing = self._threads.get(name)
         if existing and existing._thread and existing._thread.is_alive():
-            logMessage(f"[ThreadManager] Thread '{name}' already running, skipping add_thread")
+            logger.logMessage(f"[ThreadManager] Thread '{name}' already running, skipping add_thread")
             return existing
         
         self._threads[name] = wrapper
         wrapper.start()
 
     def stop_all(self):
-        logMessage("[ThreadManager] Stopping all threads...")
+        logger.logMessage("[ThreadManager] Stopping all threads...")
         for wrapper in self._threads.values():
             wrapper.stop()
         if self._observer:
             self._observer.stop()
             self._observer.join()
             self._observer = None
-        logMessage("[ThreadManager] All threads stopped.")
+        logger.logMessage("[ThreadManager] All threads stopped.")
 
     # ----------------------------
     # Hot reload
@@ -157,7 +155,7 @@ class ThreadManager:
             for idx, t in enumerate(threading.enumerate()):
                 if t.name.startswith("Thread-") and t.daemon:
                     t.name = f"WatchdogThread-{idx+1}"
-            logMessage(f"[ThreadManager] Watchdog started for folder: {self._watch_folder}")
+            logger.logMessage(f"[ThreadManager] Watchdog started for folder: {self._watch_folder}")
 
     def _on_modified(self, event):
         # Only care about files
@@ -168,7 +166,7 @@ class ThreadManager:
 
 
     def hot_reload(self, changed_file_path):
-        #logMessage(f"[ThreadManager][HotReload] Change detected: {changed_file_path}")
+        #logger.logMessage(f"[ThreadManager][HotReload] Change detected: {changed_file_path}")
         matched = False
 
         for wrapper in list(self._threads.values()):
@@ -176,7 +174,7 @@ class ThreadManager:
                 abs_file = str(Path(file).resolve())
                 if abs_file == str(Path(changed_file_path).resolve()):
                     matched = True
-                    #logMessage(f"[ThreadManager][HotReload] Reloading thread '{wrapper.name}' for {changed_file_path}")
+                    #logger.logMessage(f"[ThreadManager][HotReload] Reloading thread '{wrapper.name}' for {changed_file_path}")
 
                     # --- stop old thread ---
                     wrapper.stop()
@@ -189,7 +187,7 @@ class ThreadManager:
                     for reload_file in wrapper.reload_files:
                         module_name = Path(reload_file).with_suffix("").as_posix().replace("/", ".")
                         if module_name in sys.modules:
-                            logMessage(f"[ThreadManager][HotReload] Reloading module {module_name}")
+                            logger.logMessage(f"[ThreadManager][HotReload] Reloading module {module_name}")
                             module = importlib.reload(sys.modules[module_name])
                         else:
                             spec = importlib.util.spec_from_file_location(module_name, reload_file)
@@ -226,5 +224,5 @@ class ThreadManager:
             mod_parts.append(p.stem)
             return ".".join(mod_parts)
         except ValueError:
-            logMessage(f"[ThreadManager] Could not convert path to module: {path}")
+            logger.logMessage(f"[ThreadManager] Could not convert path to module: {path}")
             return p.stem

@@ -11,7 +11,7 @@ from models.generated.Account import Account, PortfolioAccount
 from models.generated.Position import Position
 from models.option import OptionContract,Product,Quick,OptionGreeks,ProductId
 from services.threading.api_worker import ApiWorker,HttpMethod
-from services.utils import logMessage
+from services.logging.logger_singleton import logger
 
 
 class EtradeConsumer:
@@ -29,7 +29,7 @@ class EtradeConsumer:
             raise Exception("Missing E*TRADE consumer key")
 
         if not os.path.exists(self.token_file):
-            logMessage("🔑 No token file found. Starting OAuth...")
+            logger.logMessage("🔑 No token file found. Starting OAuth...")
             if not self.generate_token(open_browser=open_browser):
                 raise Exception("Failed to generate access token.")
         else:
@@ -55,20 +55,20 @@ class EtradeConsumer:
                     error_code = error["Error"]["code"]
                     if error_code == 10033:
                         symbol = params["symbol"]
-                        logMessage(f"The symbol {symbol} is invalid for api: {url}")
+                        logger.logMessage(f"The symbol {symbol} is invalid for api: {url}")
                     
                     #10031 means no options available for month
                     #10032 means no options available
                     elif (error_code != 10031 and error_code != 10032):
-                        logMessage(f"Error: {error}")
+                        logger.logMessage(f"Error: {error}")
                         
                 except Exception as e:
-                    logMessage(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")
+                    logger.logMessage(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")
         else:
             try:
                 return self.session.get(url, headers=headers, params=params)
             except Exception as e:
-                logMessage(f"[GET Exception] {e} for URL: {url}")
+                logger.logMessage(f"[GET Exception] {e} for URL: {url}")
                 return None
 
 
@@ -80,7 +80,7 @@ class EtradeConsumer:
             if response["ok"]:
                 return response.data
             else:
-                logMessage(f"Error {response.status_code}: {response.error}")
+                logger.logMessage(f"Error {response.status_code}: {response.error}")
         else:
             return self.session.put(url, headers, params=params)
 
@@ -116,14 +116,14 @@ class EtradeConsumer:
             if self._check_session_valid():
                 return True
 
-            logMessage("[Token Validation] Token invalid. Attempting refresh...")
+            logger.logMessage("[Token Validation] Token invalid. Attempting refresh...")
             if self._refresh_token_if_needed():
                 return True
 
-            logMessage("[Token Validation] Refresh failed, generating new token...")
+            logger.logMessage("[Token Validation] Refresh failed, generating new token...")
             return self.generate_token(open_browser=open_browser)
         except Exception as e:
-            logMessage(f"[Token Validation] Exception: {e}")
+            logger.logMessage(f"[Token Validation] Exception: {e}")
             return self.generate_token(open_browser=open_browser)
 
     def _check_session_valid(self):
@@ -133,7 +133,7 @@ class EtradeConsumer:
             r = self.get(url)
             return r and getattr(r, "status_code", 200) == 200
         except Exception as e:
-            logMessage(f"[Token Validation] Session check failed: {e}")
+            logger.logMessage(f"[Token Validation] Session check failed: {e}")
             return False
 
     def _refresh_token_if_needed(self):
@@ -169,10 +169,10 @@ class EtradeConsumer:
                 resource_owner_secret=self.oauth_token_secret,
             )
             self.save_tokens()
-            logMessage("✅ Access token refreshed successfully.")
+            logger.logMessage("✅ Access token refreshed successfully.")
             return True
         except Exception as e:
-            logMessage(f"[Token Refresh] Failed: {e}")
+            logger.logMessage(f"[Token Refresh] Failed: {e}")
             return False
 
     def generate_token(self, open_browser=True):
@@ -188,8 +188,8 @@ class EtradeConsumer:
             authorize_base = "https://us.etrade.com/e/t/etws/authorize"
             params = {"key": self.consumer_key, "token": resource_owner_key}
             authorization_url = f"{authorize_base}?{urlencode(params)}"
-            logMessage("Please go to the following URL to authorize access:")
-            logMessage(authorization_url)
+            logger.logMessage("Please go to the following URL to authorize access:")
+            logger.logMessage(authorization_url)
             if open_browser:
                 webbrowser.open(authorization_url)
 
@@ -215,10 +215,10 @@ class EtradeConsumer:
                 resource_owner_secret=self.oauth_token_secret,
             )
             self.save_tokens()
-            logMessage("✅ Access token obtained successfully.")
+            logger.logMessage("✅ Access token obtained successfully.")
             return True
         except Exception as e:
-            logMessage(f"[ERROR] Failed to generate token: {e}")
+            logger.logMessage(f"[ERROR] Failed to generate token: {e}")
             return False
 
     def save_tokens(self):
@@ -253,7 +253,7 @@ class EtradeConsumer:
             accts = r.json().get("AccountListResponse", {}).get("Accounts", {}).get("Account", [])
             return [Account(**acct) for acct in accts]
         except Exception as e:
-            logMessage(f"[ERROR] Failed to parse account ID: {e}")
+            logger.logMessage(f"[ERROR] Failed to parse account ID: {e}")
             return []
 
     def get_positions(self):
@@ -342,7 +342,7 @@ class EtradeConsumer:
                 results.append(option)
             return results,True
         except Exception as e:
-            logMessage(f"[ERROR] Failed to parse option chain for {symbol}: {e}")
+            logger.logMessage(f"[ERROR] Failed to parse option chain for {symbol}: {e}")
             return [],False
 
     # ------------------- QUOTES -------------------
@@ -362,7 +362,7 @@ class EtradeConsumer:
             )
             return Position(Product=product, Quick=quick)
         except Exception as e:
-            logMessage(f"[ERROR] Failed to parse quote for {symbol}: {e}")
+            logger.logMessage(f"[ERROR] Failed to parse quote for {symbol}: {e}")
             return None
 
 

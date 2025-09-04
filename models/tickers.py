@@ -3,7 +3,7 @@ import requests
 import json
 from datetime import datetime
 from services.core.cache_manager import TickerCache
-from services.utils import logMessage
+from services.logging.logger_singleton import logger
 
 
 def fetch_us_tickers_from_finnhub(ticker_cache:TickerCache):
@@ -13,7 +13,7 @@ def fetch_us_tickers_from_finnhub(ticker_cache:TickerCache):
 
     # Use cached file if available and not forced
 
-    logMessage("[Tickers] Fetching from Finnhub...")
+    logger.logMessage("[Tickers] Fetching from Finnhub...")
     url = f"https://finnhub.io/api/v1/stock/symbol?exchange=US&token={api_key}"
     r = requests.get(url)
 

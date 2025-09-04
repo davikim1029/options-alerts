@@ -1,10 +1,11 @@
 # services/scanner/scanner.py
 import os
 import sys
-import time
 import queue
 import threading
 from pathlib import Path
+import time as pyTime
+from datetime import time
 
 from services.utils import logMessage
 from services.etrade_consumer import EtradeConsumer
@@ -42,19 +43,19 @@ def input_listener(stop_event):
                     ch = msvcrt.getwch()
                     if ch == "\r":
                         user_input_queue.put("\n")
-                time.sleep(0.05)
+                pyTime.sleep(0.05)
             else:
                 import select
                 dr, _, _ = select.select([sys.stdin], [], [], 0.1)
                 if dr:
                     line = sys.stdin.readline()
                     if not line:
-                        time.sleep(0.05)
+                        pyTime.sleep(0.05)
                         continue
                     user_input_queue.put(line.rstrip("\n"))
         except Exception as e:
             logMessage(f"[Input Listener] Error: {e}")
-            time.sleep(0.1)
+            pyTime.sleep(0.1)
 
 def input_processor(stop_event):
     while not stop_event.is_set():
@@ -155,11 +156,10 @@ def run_scan(mode=None, consumer=None, debug=False):
     )
 
     # Cache autosave loops
-    for cache in caches.all_caches():
+    for loop_func, loop_name in caches.all_autosave_loops():
         manager.add_thread(
-            f"{cache.name} Autosave",
-            _autosave_loop,
-            kwargs={"cache": cache},
+            loop_name,
+            loop_func,
             daemon=True,
             reload_files=[]
         )
@@ -176,7 +176,10 @@ def run_scan(mode=None, consumer=None, debug=False):
         reload_files=[
             "services/scanner/buy_loop.py",
             "services/scanner/buy_scanner.py"
-        ]
+        ],
+        start_time=time(9, 30),   # 9:30 AM
+        end_time=time(16, 0),     # 4:00 PM
+        cooldown_seconds=300      # wait 5 minutes before restarting
     )
 
 
@@ -191,7 +194,10 @@ def run_scan(mode=None, consumer=None, debug=False):
         reload_files=[
             "services/scanner/sell_loop.py",
             "services/scanner/sell_scanner.py"
-        ]
+        ],
+        start_time=time(9, 30),   # 9:30 AM
+        end_time=time(16, 0),     # 4:00 PM
+        cooldown_seconds=3600      # wait 5 minutes before restarting
     )
 
 
@@ -200,7 +206,7 @@ def run_scan(mode=None, consumer=None, debug=False):
 
     try:
         while not _MAIN_STOP.is_set():
-            time.sleep(0.5)
+            pyTime.sleep(0.5)
     except KeyboardInterrupt:
         _request_shutdown("KeyboardInterrupt")
     except Exception as e:

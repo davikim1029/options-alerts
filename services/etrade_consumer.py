@@ -15,7 +15,7 @@ from services.utils import logMessage
 
 
 class EtradeConsumer:
-    def __init__(self, apiWorker: ApiWorker = None, open_browser=True, sandbox=True, debug=False):
+    def __init__(self, apiWorker: ApiWorker = None, open_browser=True, sandbox=False, debug=False):
         self.debug = debug
         self.sandbox = sandbox
         self.apiWorker = apiWorker
@@ -367,6 +367,6 @@ class EtradeConsumer:
 
 
 # ------------------- FORCE TOKEN GENERATION (OUTSIDE CLASS) -------------------
-def force_generate_new_token(open_browser=True, sandbox=True):
+def force_generate_new_token(open_browser=False, sandbox=False):
     consumer = EtradeConsumer(open_browser=open_browser, sandbox=sandbox)
-    return consumer.generate_token(open_browser=open_browser)
+    return

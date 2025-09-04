@@ -1,6 +1,7 @@
 # services/core/cache_manager.py
 import json
 import os
+import tempfile
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from services.core.shutdown_handler import ShutdownManager
@@ -66,8 +67,17 @@ class CacheManager:
                     k: {"Value": v["Value"], "Timestamp": v["Timestamp"].isoformat()}
                     for k, v in self._cache.items()
                 }
-            with open(self.filepath, "w") as f:
-                json.dump(serializable, f, indent=2, default=str)
+
+            # Write to a temp file first
+            dir_name = os.path.dirname(self.filepath)
+            with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as tmp:
+                json.dump(serializable, tmp, indent=2, default=str)
+                tmp.flush()
+                os.fsync(tmp.fileno())  # ensure data is on disk
+
+            # Atomically replace the old file
+            os.replace(tmp.name, self.filepath)
+
         except Exception as e:
             logMessage(f"[{self.name}] Failed to save cache: {e}")
 
@@ -219,7 +229,6 @@ class Caches:
             (self.bought.autosave_loop, "Bought Cache Autosave"),
             (self.news.autosave_loop, "NewsAPI Cache Autosave"),
             (self.rate.autosave_loop, "RateLimit Cache Autosave"),
-            (self.ticker.autosave_loop, "Ticker Cache Autosave"),
             (self.last_seen.autosave_loop, "Last Ticker Cache Autosave"),
         ]
 

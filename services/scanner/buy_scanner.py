@@ -35,13 +35,20 @@ def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debu
 
     logMessage(f"[Buy Scanner] Processing tickers {start_index} to {len(ticker_keys)}")
     context = {"exposure": consumer.get_open_exposure()}
-
+    counter = 0
+    processedCounter = 0
     for idx, ticker in enumerate(ticker_keys[start_index:], start=start_index):
         if stop_event.is_set():
             if last_ticker_cache:
                 last_ticker_cache._save_cache()
             logMessage("[Buy Scanner] Stopped early due to stop_event")
             return
+        
+        counter += 1   
+        if counter % 5 == 0:
+            if last_ticker_cache is not None:
+                last_ticker_cache.add("lastSeen",ticker)
+                
 
         if ignore_cache and ignore_cache.is_cached(ticker):
             continue
@@ -49,6 +56,11 @@ def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debu
             continue
         if eval_cache and eval_cache.is_cached(ticker):
             continue
+
+        #only count tickers that aren't cached
+        processedCounter += 1
+        if processedCounter % 200 == 0:
+            logMessage(f"Processed {processedCounter} tickers. {len(ticker_keys)-counter} remaining.")
 
         try:
             options, hasOptions = consumer.get_option_chain(ticker)
@@ -58,8 +70,8 @@ def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debu
                 continue
 
             for opt in options:
-                if not isinstance(opt, dict):
-                    opt = vars(opt)
+                #if not isinstance(opt, dict):
+                #    opt = vars(opt)
 
                 should_buy = True
                 eval_result = {}

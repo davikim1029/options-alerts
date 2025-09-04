@@ -9,7 +9,7 @@ from strategy.sentiment import SectorSentimentStrategy
 
 print("[Buy Scanner] Module loaded/reloaded")  # Hot reload indicator
 
-def run_buy_scan(stop_event, consumer=None, caches=None, last_seen=None, seconds_to_wait=0, debug=False):
+def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debug=False):
     """Hot-reloadable buy scan loop."""
     logMessage("[Buy Scanner] Starting run_buy_scan")
 
@@ -29,6 +29,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, last_seen=None, seconds
     tickers = get_active_tickers(ticker_cache=ticker_cache)
     ticker_keys = list(tickers.keys())
     start_index = 0
+    last_seen = last_ticker_cache.get("lastSeen")
     if last_seen and last_seen in ticker_keys:
         start_index = ticker_keys.index(last_seen) + 1
 
@@ -42,8 +43,6 @@ def run_buy_scan(stop_event, consumer=None, caches=None, last_seen=None, seconds
             logMessage("[Buy Scanner] Stopped early due to stop_event")
             return
 
-        print("NEW")
-        print(f"[Buy Scanner] Evaluating ticker: {ticker}")  # Hot reload indicator
         if ignore_cache and ignore_cache.is_cached(ticker):
             continue
         if bought_cache and bought_cache.is_cached(ticker):
@@ -58,10 +57,9 @@ def run_buy_scan(stop_event, consumer=None, caches=None, last_seen=None, seconds
                     ignore_cache.add(ticker, "")
                 continue
 
-            for opt_obj in options:
-                if not isinstance(opt_obj, dict):
-                    opt_obj = vars(opt_obj)
-                opt = Position(**opt_obj)
+            for opt in options:
+                if not isinstance(opt, dict):
+                    opt = vars(opt)
 
                 should_buy = True
                 eval_result = {}

@@ -49,8 +49,6 @@ def run_sell_scan(
                 logMessage("[Sell Scanner] Stopping early due to stop_event")
                 return
 
-            print(f"[Sell Scanner] Evaluating position: {pos.Product['symbol']}")  # Hot reload indicator
-
             try:
                 should_sell = True
                 eval_result = {}
@@ -86,12 +84,10 @@ def run_sell_scan(
                     # Send alert
                     send_alert(msg)
 
-                else:
-                    logMessage(f"[Sell Scanner] Skipped {pos.Product['symbol']} due to primary strategy failure")
 
                 # Store evaluation in cache if needed
-                if eval_cache:
-                    eval_cache.add(pos.Product['symbol'], eval_result)
+                #if eval_cache:
+                #    eval_cache.add(pos.Product['symbol'], eval_result)
 
             except Exception as e:
                 logMessage(f"[Sell Scanner Error] {pos.Product['symbol']}: {e}")

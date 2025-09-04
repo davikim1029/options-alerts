@@ -10,7 +10,6 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 log = logging.getLogger("ThreadManager")
-logging.basicConfig(level=logging.INFO)
 
 class ThreadWrapper:
     def __init__(self, name, target_func, args=None, kwargs=None, daemon=True, reload_files=None):
@@ -103,6 +102,9 @@ class ThreadManager:
             self._observer = Observer()
             self._observer.schedule(event_handler, str(self._watch_folder), recursive=True)
             self._observer.start()
+            for idx, t in enumerate(threading.enumerate()):
+                if t.name.startswith("Thread-") and t.daemon:
+                    t.name = f"WatchdogThread-{idx+1}"
             log.info(f"[ThreadManager] Watchdog started for folder: {self._watch_folder}")
 
     def _on_modified(self, event):
@@ -114,7 +116,7 @@ class ThreadManager:
 
 
     def hot_reload(self, changed_file_path):
-        log.info(f"[ThreadManager][HotReload] Change detected: {changed_file_path}")
+        #log.info(f"[ThreadManager][HotReload] Change detected: {changed_file_path}")
         matched = False
 
         for wrapper in list(self._threads.values()):
@@ -122,7 +124,7 @@ class ThreadManager:
                 abs_file = str(Path(file).resolve())
                 if abs_file == str(Path(changed_file_path).resolve()):
                     matched = True
-                    log.info(f"[ThreadManager][HotReload] Reloading thread '{wrapper.name}' for {changed_file_path}")
+                    #log.info(f"[ThreadManager][HotReload] Reloading thread '{wrapper.name}' for {changed_file_path}")
 
                     # --- stop old thread ---
                     wrapper.stop()
@@ -149,8 +151,8 @@ class ThreadManager:
                     # Restart the thread
                     wrapper.start()
 
-        if not matched:
-            log.info(f"[ThreadManager][HotReload] No registered threads matched: {changed_file_path}")
+        #if not matched:
+        #    log.info(f"[ThreadManager][HotReload] No registered threads matched: {changed_file_path}")
 
 
 

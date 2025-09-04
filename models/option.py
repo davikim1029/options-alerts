@@ -1,41 +1,61 @@
-from dataclasses import dataclass,asdict,is_dataclass
-from datetime import datetime
+from dataclasses import dataclass
+from typing import Optional, Dict
 
-from typing import Optional
+@dataclass
+class OptionGreeks:
+    rho: Optional[float] = None
+    vega: Optional[float] = None
+    theta: Optional[float] = None
+    delta: Optional[float] = None
+    gamma: Optional[float] = None
+    iv: Optional[float] = None
+    currentValue: Optional[bool] = None
+
+@dataclass
+class ProductId:
+    symbol: str
+    typeCode: str
+
+@dataclass
+class Product:
+    symbol: str
+    securityType: str
+    callPut: Optional[str] = None
+    expiryYear: Optional[int] = None
+    expiryMonth: Optional[int] = None
+    expiryDay: Optional[int] = None
+    strikePrice: Optional[float] = None
+    productId: Optional[ProductId] = None
+
+@dataclass
+class Quick:
+    lastTrade: Optional[float] = None
+    lastTradeTime: Optional[int] = None
+    change: Optional[float] = None
+    changePct: Optional[float] = None
+    volume: Optional[int] = None
+    quoteStatus: Optional[str] = None
 
 @dataclass
 class OptionContract:
     symbol: str
-    display: str
-    underlyingPrice: float
-    lastPrice: float
-    bid:float
-    bidSize: float
-    ask: float
-    askSize: float
-    volume: int
-    inTheMoney: str
-    openInterest: int
-    expiryDate: str
+    optionType: str
     strikePrice: float
-    underlyingSymbol: str
-    positionId: Optional[float]
-    osiKey:Optional[str]
-    delta: Optional[float]
-    gamma: Optional[float]
-    theta: Optional[float]
-    vega: Optional[float]
-    impliedVolatility: Optional[float]
-
-    def to_dict(obj):
-        if is_dataclass(obj):
-            result = asdict(obj)
-            for key, value in result.items():
-                if isinstance(value, datetime):
-                    result[key] = value.isoformat()  # e.g. "2025-08-19T10:20:30"
-            return result
-        raise TypeError(f"Object of type {type(obj)} is not a dataclass")
-
-    @classmethod
-    def from_dict(cls, data: dict):
-        return cls(**data)
+    displaySymbol: str
+    osiKey: str
+    bid: Optional[float] = None
+    ask: Optional[float] = None
+    bidSize: Optional[int] = None
+    askSize: Optional[int] = None
+    inTheMoney: Optional[str] = None
+    volume: Optional[int] = None
+    openInterest: Optional[int] = None
+    netChange: Optional[float] = None
+    lastPrice: Optional[float] = None
+    quoteDetail: Optional[str] = None
+    optionCategory: Optional[str] = None
+    timeStamp: Optional[int] = None
+    adjustedFlag: Optional[bool] = None
+    OptionGreeks: Optional[OptionGreeks] = None
+    quick: Optional[Quick] = None
+    product: Optional[Product] = None

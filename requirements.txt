@@ -14,3 +14,4 @@ feedparser
 dacite
 yfinance<0.2.65
 watchdog
+importlib

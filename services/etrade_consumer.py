@@ -9,9 +9,7 @@ from urllib.parse import urlencode
 
 from models.generated.Account import Account, PortfolioAccount
 from models.generated.Position import Position
-from models.generated.Product import Product
-from models.generated.Quick import Quick
-from models.generated.ProductId import ProductId
+from models.option import OptionContract,Product,Quick,OptionGreeks,ProductId
 from services.threading.api_worker import ApiWorker,HttpMethod
 from services.utils import logMessage
 
@@ -88,43 +86,97 @@ class EtradeConsumer:
 
     # ------------------- TOKENS -------------------
     def load_tokens(self, open_browser=True):
+        """Load saved tokens or generate/refresh if needed."""
+        token_data = {}
         if os.path.exists(self.token_file):
             with open(self.token_file, "r") as f:
                 token_data = json.load(f)
-            self.oauth_token = token_data.get("oauth_token")
-            self.oauth_token_secret = token_data.get("oauth_token_secret")
 
+        self.oauth_token = token_data.get("oauth_token")
+        self.oauth_token_secret = token_data.get("oauth_token_secret")
+
+        if self.oauth_token and self.oauth_token_secret:
             self.session = OAuth1Session(
                 self.consumer_key,
                 client_secret=self.consumer_secret,
                 resource_owner_key=self.oauth_token,
                 resource_owner_secret=self.oauth_token_secret,
             )
-        else:
-            with open(self.token_file, "w") as f:
-                json.dump({}, f)
 
+        # Validate or refresh
         if not self._validate_tokens(open_browser=open_browser):
             raise Exception("Failed to authenticate after token validation.")
 
     def _validate_tokens(self, open_browser=True):
+        """
+        Validate current tokens; attempt refresh first.
+        If refresh fails, fallback to full manual token generation.
+        """
+        try:
+            if self._check_session_valid():
+                return True
+
+            logMessage("[Token Validation] Token invalid. Attempting refresh...")
+            if self._refresh_token_if_needed():
+                return True
+
+            logMessage("[Token Validation] Refresh failed, generating new token...")
+            return self.generate_token(open_browser=open_browser)
+        except Exception as e:
+            logMessage(f"[Token Validation] Exception: {e}")
+            return self.generate_token(open_browser=open_browser)
+
+    def _check_session_valid(self):
+        """Simple API test to check if the current session is valid."""
         try:
             url = f"{self.base_url}/v1/accounts/list.json"
             r = self.get(url)
-            if r and getattr(r, "status_code", 200) == 200:
-                return True
-            else:
-                logMessage("[Token Validation] Invalid token, regenerating...")
-                if os.path.exists(self.token_file):
-                    os.remove(self.token_file)
-                return self.generate_token(open_browser=open_browser)
+            return r and getattr(r, "status_code", 200) == 200
         except Exception as e:
-            logMessage(f"[Token Validation] Exception: {e}")
-            if os.path.exists(self.token_file):
-                os.remove(self.token_file)
-            return self.generate_token(open_browser=open_browser)
+            logMessage(f"[Token Validation] Session check failed: {e}")
+            return False
+
+    def _refresh_token_if_needed(self):
+        """
+        Attempt to refresh the current token automatically.
+        Returns True if refresh succeeded, False otherwise.
+        """
+        try:
+            if not hasattr(self, "oauth_token") or not self.oauth_token:
+                return False
+
+            # Example endpoint for refresh; adjust if E*TRADE supports it
+            refresh_url = f"{self.base_url}/oauth/refresh_token"
+            oauth = OAuth1Session(
+                self.consumer_key,
+                client_secret=self.consumer_secret,
+                resource_owner_key=self.oauth_token,
+                resource_owner_secret=self.oauth_token_secret
+            )
+            r = oauth.post(refresh_url)
+            if r.status_code != 200:
+                return False
+
+            token_response = r.json()
+            self.oauth_token = token_response.get("oauth_token")
+            self.oauth_token_secret = token_response.get("oauth_token_secret")
+
+            # Rebuild session
+            self.session = OAuth1Session(
+                self.consumer_key,
+                client_secret=self.consumer_secret,
+                resource_owner_key=self.oauth_token,
+                resource_owner_secret=self.oauth_token_secret,
+            )
+            self.save_tokens()
+            logMessage("✅ Access token refreshed successfully.")
+            return True
+        except Exception as e:
+            logMessage(f"[Token Refresh] Failed: {e}")
+            return False
 
     def generate_token(self, open_browser=True):
+        """Full manual OAuth flow (unchanged)."""
         try:
             request_token_url = f"{self.base_url}/oauth/request_token"
             oauth = OAuth1Session(self.consumer_key, client_secret=self.consumer_secret, callback_uri="oob")
@@ -170,11 +222,13 @@ class EtradeConsumer:
             return False
 
     def save_tokens(self):
+        """Save the current token data to disk."""
         with open(self.token_file, "w") as f:
             json.dump({
                 "oauth_token": self.oauth_token,
                 "oauth_token_secret": self.oauth_token_secret
             }, f)
+
 
     # ------------------- HELPERS -------------------
     def get_headers(self):
@@ -250,17 +304,17 @@ class EtradeConsumer:
             results = []
             for optionPair in chain_data.get("OptionPair", []):
                 call = optionPair.get("Call", {})
-                greeks = call.get("OptionGreeks", {})
+                call_greeks = call.get("OptionGreeks", {})
+                option_greeks = OptionGreeks(**call_greeks)
+
                 product = Product(
                     symbol=call.get("symbol"),
-                    securityType=call.get("securityType"),
-                    callPut=call.get("callPut"),
-                    expiryYear=call.get("expiryYear"),
-                    expiryMonth=call.get("expiryMonth"),
-                    expiryDay=call.get("expiryDay"),
+                    securityType=call.get("optionType"),  # or "CALL"/"PUT"
+                    callPut="CALL" if call.get("optionType") == "CALL" else "PUT",
                     strikePrice=call.get("strikePrice"),
-                    productId=ProductId(symbol=call.get("symbol"), typeCode=call.get("securityType"))
+                    productId=ProductId(symbol=call.get("symbol"), typeCode=call.get("optionType"))
                 )
+
                 quick = Quick(
                     lastTrade=call.get("lastPrice"),
                     lastTradeTime=None,
@@ -269,13 +323,22 @@ class EtradeConsumer:
                     volume=call.get("volume"),
                     quoteStatus=None
                 )
-                option = Position(
-                    symbolDescription=call.get("displaySymbol"),
-                    totalCost=call.get("lastPrice"),
-                    marketValue=near_price,
-                    Product=product,
-                    Quick=quick
+
+                # Only pass keys that exist in OptionContract
+                option_fields = {k: call[k] for k in [
+                    "symbol", "optionType", "strikePrice", "displaySymbol", "osiKey",
+                    "bid", "ask", "bidSize", "askSize", "inTheMoney", "volume",
+                    "openInterest", "netChange", "lastPrice", "quoteDetail",
+                    "optionCategory", "timeStamp", "adjustedFlag"
+                ] if k in call}
+
+                option = OptionContract(
+                    **option_fields,
+                    OptionGreeks=option_greeks,
+                    quick=quick,
+                    product=product
                 )
+
                 results.append(option)
             return results,True
         except Exception as e:

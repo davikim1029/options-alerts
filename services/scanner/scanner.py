@@ -178,7 +178,7 @@ def run_scan(mode=None, consumer=None, debug=False):
             "services/scanner/buy_scanner.py"
         ],
         start_time=time(9, 30),   # 9:30 AM
-        end_time=time(17, 30),     # 4:00 PM
+        end_time=time(23, 30),     # 4:00 PM
         cooldown_seconds=300      # wait 5 minutes before restarting
     )
 

@@ -203,7 +203,7 @@ class ThreadManager:
                     func_name = wrapper._target_func.__name__
                     module = sys.modules[module_name]
                     wrapper._target_func = getattr(module, func_name)
-
+                    logger.logMessage(f"[ThreadManager][HotReload] Updated target function: {func_name} -> {wrapper._target_func}")
                     # Restart the thread
                     wrapper.start()
 

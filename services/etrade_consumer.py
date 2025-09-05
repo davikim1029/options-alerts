@@ -24,7 +24,7 @@ class EtradeConsumer:
         envType = "nonProd" if sandbox else "prod"
 
         self.consumer_key, self.consumer_secret = self.load_encrypted_etrade_keysecret(sandbox)
-        self.token_file = os.path.join("models", f"etrade_tokens_{envType}.json")
+        self.token_file = os.path.join("encryption", f"etrade_tokens_{envType}.json")
         self.base_url = "https://apisb.etrade.com" if sandbox else "https://api.etrade.com"
 
         if not self.consumer_key:

@@ -175,6 +175,8 @@ class ThreadManager:
         for wrapper in list(self._threads.values()):
             for file in wrapper.reload_files:
                 abs_file = str(Path(file).resolve())
+                logger.logMessage(f"Comparing {abs_file} <-> {changed_file_path}")
+                logger.logMessage(f"Comaprison: {abs_file == str(Path(changed_file_path).resolve())}")
                 if abs_file == str(Path(changed_file_path).resolve()):
                     matched = True
                     #logger.logMessage(f"[ThreadManager][HotReload] Reloading thread '{wrapper.name}' for {changed_file_path}")

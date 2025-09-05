@@ -28,8 +28,6 @@ input_processor_queue = queue.Queue()
 BUY_INTERVAL_SECONDS = 300
 SELL_INTERVAL_SECONDS = 1800
 
-# Global main-stop event
-_MAIN_STOP = threading.Event()
 
 # ---------------------------
 # Input listener / processor
@@ -73,7 +71,7 @@ def input_processor(stop_event):
             lower = cmd.strip().lower()
             if lower == "exit":
                 logger.logMessage("[Input Processor] 'exit' received → shutting down")
-                _request_shutdown("User exit command")
+                ThreadManager.instance().stop_all()
                 return
             elif lower == "stats":
                 logger.logMessage("[Input Processor] stats command received (not implemented)")
@@ -91,20 +89,12 @@ def _autosave_loop(stop_event, cache):
     except Exception as e:
         logger.logMessage(f"[Autosave] Error in '{getattr(cache,'name',cache)}': {e}")
 
-# ---------------------------
-# Shutdown
-# ---------------------------
-def _request_shutdown(reason="Unknown"):
-    try:
-        logger.logMessage(f"[Scanner] Shutdown requested: {reason}")
-        ThreadManager.instance().stop_all()
-    finally:
-        _MAIN_STOP.set()
 
 # ---------------------------
 # Main scanner runner
 # ---------------------------
-def run_scan(mode=None, consumer=None, debug=False):
+def run_scan(stop_event, mode=None, consumer=None, debug=False):
+
     logger.logMessage("[Scanner] Initializing...")
 
     if consumer is None:
@@ -122,7 +112,7 @@ def run_scan(mode=None, consumer=None, debug=False):
     logger.logMessage(f"[Scanner] Watchdog started in: {watch_dir}")
 
     def _shutdown_callback(reason=None):
-        _request_shutdown(reason or "ShutdownManager")
+        ThreadManager.instance().stop_all()
 
     try:
         ShutdownManager.register("Request Shutdown",_shutdown_callback)
@@ -177,11 +167,16 @@ def run_scan(mode=None, consumer=None, debug=False):
             "services/scanner/buy_loop.py",
             "services/scanner/buy_scanner.py"
         ],
-        start_time=time(0, 00),   # 9:30 AM
-        end_time=time(17, 00),     # 4:00 PM
-        cooldown_seconds=300      # wait 5 minutes before restarting
+        start_time=time(9, 00),
+        end_time=time(17, 00),
+        cooldown_seconds=300,
+        parent="ScannerParent",
+        update_vars={
+        "start_time": "START_TIME",
+        "end_time": "END_TIME",
+        "cooldown_seconds": "COOLDOWN_SECONDS",
+        }
     )
-
 
     manager.add_thread(
         "Sell Scanner",
@@ -195,24 +190,15 @@ def run_scan(mode=None, consumer=None, debug=False):
             "services/scanner/sell_loop.py",
             "services/scanner/sell_scanner.py"
         ],
-        start_time=time(9, 30),   # 9:30 AM
-        end_time=time(17, 0),     # 4:00 PM
-        cooldown_seconds=3600      # wait 5 minutes before restarting
+        start_time=time(9, 30),
+        end_time=time(17, 0),
+        cooldown_seconds=3600,
+        parent="ScannerParent",
+                update_vars={
+        "start_time": "START_TIME",
+        "end_time": "END_TIME",
+        "cooldown_seconds": "COOLDOWN_SECONDS",
+        }
     )
-
-
-
+    
     logger.logMessage("[Scanner] All threads started. Press Ctrl+C or type 'exit' to stop.")
-
-    try:
-        while not _MAIN_STOP.is_set():
-            pyTime.sleep(0.5)
-        _request_shutdown("Main Loop stopped")
-    except KeyboardInterrupt:
-        _request_shutdown("KeyboardInterrupt")
-    except Exception as e:
-        _request_shutdown(f"Fatal error: {e}")
-        sys.exit(1)
-    finally:
-        _MAIN_STOP.clear() #Reset for new loop
-        logger.logMessage("[Scanner] Exited main loop.")

@@ -11,6 +11,8 @@ from services.scanner.scanner_utils import get_active_tickers
 from encryption.encryptItems import encryptEtradeKeySecret
 from services.logging.logger_singleton import logger
 from services.core.shutdown_handler import ShutdownManager
+from services.scanner.scanner_entry import start_scanner
+from services.threading.thread_manager import ThreadManager
 
 # Disable GPU / MPS fallback
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -82,8 +84,9 @@ def main():
 
         # --- Mode Handling ---
         if mode == "scan":
-            run_scan(mode=mode, debug=debug)
-
+            start_scanner(debug=debug)
+            ThreadManager.instance().wait_for_shutdown()
+            
         elif mode == "refresh-token":
             force_generate_new_token()
 

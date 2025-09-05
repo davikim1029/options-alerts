@@ -30,7 +30,7 @@ SELL_INTERVAL_SECONDS = 1800
 
 
 # ---------------------------
-# Input listener / processor
+# Input listener
 # ---------------------------
 def input_listener(stop_event):
     while not stop_event.is_set():
@@ -41,20 +41,23 @@ def input_listener(stop_event):
                     ch = msvcrt.getwch()
                     if ch == "\r":
                         user_input_queue.put("\n")
+                    elif ch.isprintable():
+                        user_input_queue.put(ch)
                 pyTime.sleep(0.05)
             else:
                 import select
                 dr, _, _ = select.select([sys.stdin], [], [], 0.1)
                 if dr:
                     line = sys.stdin.readline()
-                    if not line:
-                        pyTime.sleep(0.05)
-                        continue
-                    user_input_queue.put(line.rstrip("\n"))
+                    if line:
+                        user_input_queue.put(line.rstrip("\n"))
         except Exception as e:
             logger.logMessage(f"[Input Listener] Error: {e}")
             pyTime.sleep(0.1)
 
+# ---------------------------
+# Input processor
+# ---------------------------
 def input_processor(stop_event):
     while not stop_event.is_set():
         try:
@@ -68,17 +71,24 @@ def input_processor(stop_event):
         try:
             if not cmd:
                 continue
+
             lower = cmd.strip().lower()
-            if lower == "exit":
-                logger.logMessage("[Input Processor] 'exit' received → shutting down")
+
+            if lower in {"exit", "quit"}:
+                logger.logMessage("[Input Processor] Shutdown command received → stopping all threads")
+                # Stop all threads and signal full shutdown
                 ThreadManager.instance().stop_all()
                 return
+
             elif lower == "stats":
                 logger.logMessage("[Input Processor] stats command received (not implemented)")
+
             else:
                 logger.logMessage(f"[Input Processor] Unknown command: {cmd}")
+
         except Exception as e:
             logger.logMessage(f"[Input Processor] Error handling '{cmd}': {e}")
+
 
 # ---------------------------
 # Cache autosave wrapper

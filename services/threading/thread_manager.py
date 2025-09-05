@@ -9,6 +9,7 @@ from datetime import datetime, time
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from services.core.shutdown_handler import ShutdownManager
 
 
 class ThreadWrapper:
@@ -196,6 +197,11 @@ class ThreadManager:
         self.hot_reload(path)
 
     def hot_reload(self, changed_file_path):
+        
+        if ShutdownManager.is_shutdown_requested():
+            logger.logMessage("[ThreadManager] Shutdown requested; skipping hot reload")
+            return
+        
         matched = False
         for wrapper in list(self._threads.values()):
             for file in wrapper.reload_files:

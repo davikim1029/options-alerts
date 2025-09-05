@@ -161,12 +161,21 @@ class ThreadManager:
 
     def stop_all(self):
         logger.logMessage("[ThreadManager] Stopping all threads...")
+        current = threading.current_thread()
+
         for wrapper in list(self._threads.values()):
+            thread = wrapper._thread
+            if thread is not None and thread.is_alive():
+                if thread is current:
+                    logger.logMessage(f"[ThreadManager] Skipping stop/join on self: {thread.name}")
+                    continue
             wrapper.stop()
+
         if self._observer:
             self._observer.stop()
             self._observer.join()
             self._observer = None
+
         logger.logMessage("[ThreadManager] All threads stopped.")
 
     # ----------------------------

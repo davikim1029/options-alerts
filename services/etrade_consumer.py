@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from cryptography.fernet import Fernet
 from requests_oauthlib import OAuth1Session
 from urllib.parse import urlencode
-
 from models.generated.Account import Account, PortfolioAccount
 from models.generated.Position import Position
 from models.option import OptionContract,Product,Quick,OptionGreeks,ProductId
@@ -44,25 +43,38 @@ class EtradeConsumer:
 
         # Add/overwrite Accept header
         headers.update({"Accept": "application/json"})
-          
+        
         if self.apiWorker is not None:
             response = self.apiWorker.call_api(HttpMethod.GET, url, headers=headers, params=params)
             if response.ok:
-                if response.data is not None:       # parsed JSON
+                if response.data is not None:  # parsed JSON
                     return response.data
+                elif response.response is not None:
+                    return response.response.text  # fallback to raw string
                 else:
-                    return response.response.text   # fallback to raw string
+                    logger.logMessage("Warning: no data or raw response available")
+                    return None
             else:
                 try:
+                    # --- handle timeout / worker errors first ---
+                    if response.error and "Timeout" in response.error:
+                        logger.logMessage(f"API call timed out: {response.error}")
+                        return None
+
+                    if response.response is None:
+                        logger.logMessage(f"API call failed with no response object: {response.error}")
+                        return None
+                    
                     error = json.loads(response.response.text)
                     error_code = error["Error"]["code"]
+                    
                     if error_code == 10033:
                         symbol = params["symbol"]
                         logger.logMessage(f"The symbol {symbol} is invalid for api: {url}")
                     
                     #10031 means no options available for month
                     #10032 means no options available
-                    elif (error_code != 10031 and error_code != 10032):
+                    elif error_code not in (10031, 10032):
                         logger.logMessage(f"Error: {error}")
                         
                 except Exception as e:

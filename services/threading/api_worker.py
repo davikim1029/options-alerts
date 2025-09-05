@@ -32,7 +32,7 @@ class HttpResult:
 # ApiWorker class
 # ---------------------------
 class ApiWorker:
-    def __init__(self, session: Session, min_interval: float = 1.0, default_timeout: float = 10.0):
+    def __init__(self, session: Session, min_interval: float = 1.0, default_timeout: float = 30.0):
         self.session = session
         self._queue = queue.Queue()
         self._min_interval = min_interval

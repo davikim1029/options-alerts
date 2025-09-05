@@ -71,21 +71,15 @@ def input_processor(stop_event):
         try:
             if not cmd:
                 continue
-
             lower = cmd.strip().lower()
-
-            if lower in {"exit", "quit"}:
-                logger.logMessage("[Input Processor] Shutdown command received → stopping all threads")
-                # Stop all threads and signal full shutdown
+            if lower == "exit":
+                logger.logMessage("[Input Processor] Shutdown command received → signaling stop")
                 ThreadManager.instance().stop_all()
                 return
-
             elif lower == "stats":
                 logger.logMessage("[Input Processor] stats command received (not implemented)")
-
             else:
                 logger.logMessage(f"[Input Processor] Unknown command: {cmd}")
-
         except Exception as e:
             logger.logMessage(f"[Input Processor] Error handling '{cmd}': {e}")
 

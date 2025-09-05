@@ -2,7 +2,8 @@
 import os
 import json
 import webbrowser
-from datetime import datetime, timezone, timedelta
+import time as pyTime
+from datetime import datetime, timezone
 from cryptography.fernet import Fernet
 from requests_oauthlib import OAuth1Session
 from urllib.parse import urlencode
@@ -13,6 +14,7 @@ from models.option import OptionContract,Product,Quick,OptionGreeks,ProductId
 from services.threading.api_worker import ApiWorker,HttpMethod
 from services.logging.logger_singleton import logger
 
+TOKEN_LIFETIME_DAYS = 90
 
 class EtradeConsumer:
     def __init__(self, apiWorker: ApiWorker = None, open_browser=True, sandbox=False, debug=False):
@@ -29,11 +31,12 @@ class EtradeConsumer:
             raise Exception("Missing E*TRADE consumer key")
 
         if not os.path.exists(self.token_file):
-            logger.logMessage("🔑 No token file found. Starting OAuth...")
+            logger.logMessage("No token file found. Starting OAuth...")
             if not self.generate_token(open_browser=open_browser):
                 raise Exception("Failed to generate access token.")
         else:
             self.load_tokens(open_browser=open_browser)
+
 
     def get(self, url: str, headers=None, params=None):
         # Existing headers (may be None)
@@ -41,7 +44,7 @@ class EtradeConsumer:
 
         # Add/overwrite Accept header
         headers.update({"Accept": "application/json"})
-        
+          
         if self.apiWorker is not None:
             response = self.apiWorker.call_api(HttpMethod.GET, url, headers=headers, params=params)
             if response.ok:
@@ -74,19 +77,75 @@ class EtradeConsumer:
 
 
 
-    def put(self, url, headers, params):
+    def put(self, url, headers=None, params=None, data=None):
+        """
+        Send a PUT request with optional headers, query params, and JSON body.
+        
+        :param url: endpoint URL
+        :param headers: dict of headers
+        :param params: dict of query parameters
+        :param data: dict/json payload to send in the body
+        """
+                
+        headers = headers or {}
+        headers.update({
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.access_token}"
+        })
+        
         if self.apiWorker is not None:
-            response = self.apiWorker.call_api(HttpMethod.PUT, url, headers=headers, params=params)
-            if response["ok"]:
-                return response.data
+            # apiWorker expects params; encode data as JSON string
+            payload = json.dumps(data) if data else None
+            response = self.apiWorker.call_api(HttpMethod.PUT, url, headers=headers, params=params, data=payload)
+            if response.get("ok"):
+                return response.get("data")
             else:
-                logger.logMessage(f"Error {response.status_code}: {response.error}")
+                logger.logMessage(f"Error {response.get('status_code')}: {response.get('error')}")
+                return None
         else:
-            return self.session.put(url, headers, params=params)
+            try:
+                return self.session.put(url, headers=headers, params=params, json=data)
+            except Exception as e:
+                logger.logMessage(f"[PUT Exception] {e} for URL: {url}")
+                return None
+
+
+    def post(self, url, headers=None, params=None, data=None):
+        """
+        Send a POST request with optional headers, query params, and JSON body.
+
+        :param url: endpoint URL
+        :param headers: dict of headers
+        :param params: dict of query parameters
+        :param data: dict/json payload to send in the body
+        """
+        headers = headers or {}
+        headers.update({
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.access_token}"
+        })
+
+        if self.apiWorker is not None:
+            # apiWorker expects params; encode data as JSON string
+            payload = json.dumps(data) if data else None
+            response = self.apiWorker.call_api(HttpMethod.POST, url, headers=headers, params=params, data=payload)
+            if response.get("ok"):
+                return response.get("data")
+            else:
+                logger.logMessage(f"Error {response.get('status_code')}: {response.get('error')}")
+                return None
+        else:
+            try:
+                resp = self.session.post(url, headers=headers, params=params, json=data)
+                return resp
+            except Exception as e:
+                logger.logMessage(f"[POST Exception] {e} for URL: {url}")
+                return None
+
 
     # ------------------- TOKENS -------------------
     def load_tokens(self, open_browser=True):
-        """Load saved tokens or generate/refresh if needed."""
+        """Load saved tokens or generate if missing/expired."""
         token_data = {}
         if os.path.exists(self.token_file):
             with open(self.token_file, "r") as f:
@@ -94,7 +153,9 @@ class EtradeConsumer:
 
         self.oauth_token = token_data.get("oauth_token")
         self.oauth_token_secret = token_data.get("oauth_token_secret")
+        created_at = token_data.get("created_at", 0)
 
+        # Build OAuth1 session if we have tokens
         if self.oauth_token and self.oauth_token_secret:
             self.session = OAuth1Session(
                 self.consumer_key,
@@ -103,9 +164,20 @@ class EtradeConsumer:
                 resource_owner_secret=self.oauth_token_secret,
             )
 
-        # Validate or refresh
-        if not self._validate_tokens(open_browser=open_browser):
-            raise Exception("Failed to authenticate after token validation.")
+        # Check token age
+        token_age_days = (datetime.now(timezone.utc) - datetime.fromtimestamp(created_at, tz=timezone.utc)).days
+        if not self.oauth_token or token_age_days >= TOKEN_LIFETIME_DAYS:
+            logger.logMessage(f"Token missing or expired (age={token_age_days}d). Generating new token...")
+            if not self.generate_token(open_browser=open_browser):
+                raise Exception("Failed to generate new OAuth token.")
+        else:
+            # Extra check: make sure the token actually works with the API
+            if not self._check_session_valid():
+                logger.logMessage("Token invalid according to API. Generating new token...")
+                if not self.generate_token(open_browser=open_browser):
+                    raise Exception("Failed to generate new OAuth token.")
+
+
 
     def _validate_tokens(self, open_browser=True):
         """
@@ -115,16 +187,10 @@ class EtradeConsumer:
         try:
             if self._check_session_valid():
                 return True
-
-            logger.logMessage("[Token Validation] Token invalid. Attempting refresh...")
-            if self._refresh_token_if_needed():
-                return True
-
-            logger.logMessage("[Token Validation] Refresh failed, generating new token...")
             return self.generate_token(open_browser=open_browser)
         except Exception as e:
             logger.logMessage(f"[Token Validation] Exception: {e}")
-            return self.generate_token(open_browser=open_browser)
+            return False
 
     def _check_session_valid(self):
         """Simple API test to check if the current session is valid."""
@@ -134,45 +200,6 @@ class EtradeConsumer:
             return r and getattr(r, "status_code", 200) == 200
         except Exception as e:
             logger.logMessage(f"[Token Validation] Session check failed: {e}")
-            return False
-
-    def _refresh_token_if_needed(self):
-        """
-        Attempt to refresh the current token automatically.
-        Returns True if refresh succeeded, False otherwise.
-        """
-        try:
-            if not hasattr(self, "oauth_token") or not self.oauth_token:
-                return False
-
-            # Example endpoint for refresh; adjust if E*TRADE supports it
-            refresh_url = f"{self.base_url}/oauth/refresh_token"
-            oauth = OAuth1Session(
-                self.consumer_key,
-                client_secret=self.consumer_secret,
-                resource_owner_key=self.oauth_token,
-                resource_owner_secret=self.oauth_token_secret
-            )
-            r = oauth.post(refresh_url)
-            if r.status_code != 200:
-                return False
-
-            token_response = r.json()
-            self.oauth_token = token_response.get("oauth_token")
-            self.oauth_token_secret = token_response.get("oauth_token_secret")
-
-            # Rebuild session
-            self.session = OAuth1Session(
-                self.consumer_key,
-                client_secret=self.consumer_secret,
-                resource_owner_key=self.oauth_token,
-                resource_owner_secret=self.oauth_token_secret,
-            )
-            self.save_tokens()
-            logger.logMessage("✅ Access token refreshed successfully.")
-            return True
-        except Exception as e:
-            logger.logMessage(f"[Token Refresh] Failed: {e}")
             return False
 
     def generate_token(self, open_browser=True):
@@ -222,12 +249,14 @@ class EtradeConsumer:
             return False
 
     def save_tokens(self):
-        """Save the current token data to disk."""
+        """Save the current token data to disk with a timestamp."""
         with open(self.token_file, "w") as f:
             json.dump({
                 "oauth_token": self.oauth_token,
-                "oauth_token_secret": self.oauth_token_secret
+                "oauth_token_secret": self.oauth_token_secret,
+                "created_at": int(pyTime.time())  # store as epoch
             }, f)
+
 
 
     # ------------------- HELPERS -------------------

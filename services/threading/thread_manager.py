@@ -148,7 +148,7 @@ class ThreadManager:
 
             self._watch_folder = folder.resolve()
             event_handler = FileSystemEventHandler()
-            event_handler.on_modified = self._on_modified
+            event_handler.on_any_event = self._on_any_event  # ⬅️ instead of on_modified
             self._observer = Observer()
             self._observer.schedule(event_handler, str(self._watch_folder), recursive=True)
             self._observer.start()
@@ -157,12 +157,15 @@ class ThreadManager:
                     t.name = f"WatchdogThread-{idx+1}"
             logger.logMessage(f"[ThreadManager] Watchdog started for folder: {self._watch_folder}")
 
-    def _on_modified(self, event):
-        # Only care about files
+
+    def _on_any_event(self, event):
         if event.is_directory:
             return
+
         path = Path(event.src_path).resolve()
+        logger.logMessage(f"[ThreadManager] Detected {event.event_type} on {path}")
         self.hot_reload(path)
+
 
 
     def hot_reload(self, changed_file_path):

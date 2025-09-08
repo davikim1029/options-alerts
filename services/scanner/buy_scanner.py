@@ -5,13 +5,17 @@ from services.scanner.scanner_utils import get_active_tickers, get_next_run_date
 from services.alerts import send_alert
 from models.generated.Position import Position
 from strategy.buy import OptionBuyStrategy
+from services.etrade_consumer import TokenExpiredError
 from strategy.sentiment import SectorSentimentStrategy
+from services.token_status import TokenStatus
+import time as pyTime
 
 print("[Buy Scanner] Module loaded/reloaded")  # Hot reload indicator
 
 def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debug=False):
     """Hot-reloadable buy scan loop."""
     logger.logMessage("[Buy Scanner] Starting run_buy_scan")
+    token_status = TokenStatus()
 
     ignore_cache = caches.ignore
     bought_cache = caches.bought
@@ -112,6 +116,15 @@ def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debu
                 if eval_cache:
                     eval_cache.add(ticker, eval_result)
 
+        except TokenExpiredError:
+            logger.logMessage("[Buy Scanner] Token expired → pausing scanner until we re-authenticate.")
+            send_alert("⚠️ E*TRADE token expired. Please re-authenticate.")
+
+            # Block here until the token becomes valid again
+            token_status.wait_until_valid(check_interval=30)
+            consumer.load_tokens(generate_new_token=False)
+            logger.logMessage("[Buy Scanner] Token restored → resuming scan.")
+                
         except Exception as e:
             logger.logMessage(f"[Buy Scanner Error] {ticker}: {e}")
 

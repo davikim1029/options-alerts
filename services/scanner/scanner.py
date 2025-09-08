@@ -76,6 +76,16 @@ def input_processor(stop_event):
                 logger.logMessage("[Input Processor] Shutdown command received → signaling stop")
                 ThreadManager.instance().stop_all()
                 return
+            elif lower == "renew_token":
+                logger.logMessage("[Input Processor] Renew token command received")
+                try:
+                    from services.etrade_consumer import force_generate_new_token
+                    force_generate_new_token()  
+                    logger.logMessage("[Auth] Token successfully refreshed")
+                    # You could restart scanners here if desired
+                except Exception as e:
+                    logger.logMessage(f"[Auth] Token renewal failed: {e}")
+            
             elif lower == "stats":
                 logger.logMessage("[Input Processor] stats command received (not implemented)")
             else:
@@ -102,11 +112,11 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
     logger.logMessage("[Scanner] Initializing...")
 
     if consumer is None:
-        consumer = EtradeConsumer(sandbox=False, open_browser=False, debug=debug)
+        consumer = EtradeConsumer(sandbox=False, debug=debug)
 
     caches = Caches()
 
-    api_worker_mod.init_worker(consumer.session, min_interval=2)
+    api_worker_mod.init_worker(consumer, min_interval=2)
     consumer.apiWorker = api_worker_mod.get_worker()
 
     manager = ThreadManager.instance(consumer=consumer, caches=caches)

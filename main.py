@@ -76,12 +76,7 @@ def main():
         useSandbox = False
         if args.sandbox is not None:
             useSandbox = args.sandbox.lower() in ["true", "1", "yes"] 
-            
-        # Convert web_browser argument to boolean
-        open_browser = True
-        if args.web_browser is not None:
-            open_browser = args.web_browser.lower() in ["true", "1", "yes"]
-
+        
         # --- Mode Handling ---
         if mode == "scan":
             start_scanner(debug=debug)
@@ -91,12 +86,12 @@ def main():
             force_generate_new_token()
 
         elif mode == "test-api":
-            consumer = EtradeConsumer(sandbox=useSandbox, open_browser=open_browser, debug=debug)
+            consumer = EtradeConsumer(sandbox=useSandbox, debug=debug)
             run_api_test(consumer)
         
 
         elif mode == "test-newsapi":
-            consumer = EtradeConsumer(sandbox=useSandbox, open_browser=open_browser, debug=debug)
+            consumer = EtradeConsumer(sandbox=useSandbox, debug=debug)
             tickers = get_active_tickers()
             cnt = 0
             for ticker in tickers:

@@ -12,14 +12,21 @@ from models.generated.Position import Position
 from models.option import OptionContract,Product,Quick,OptionGreeks,ProductId
 from services.threading.api_worker import ApiWorker,HttpMethod
 from services.logging.logger_singleton import logger
+from services.token_status import TokenStatus
 
 TOKEN_LIFETIME_DAYS = 90
 
+class TokenExpiredError(Exception):
+    """Raised when OAuth token is invalid or expired."""
+    pass
+
+
 class EtradeConsumer:
-    def __init__(self, apiWorker: ApiWorker = None, open_browser=True, sandbox=False, debug=False):
+    def __init__(self, apiWorker: ApiWorker = None, sandbox=False, debug=False):
         self.debug = debug
         self.sandbox = sandbox
         self.apiWorker = apiWorker
+        self.token_status = TokenStatus()
         envType = "nonProd" if sandbox else "prod"
 
         self.consumer_key, self.consumer_secret = self.load_encrypted_etrade_keysecret(sandbox)
@@ -31,10 +38,10 @@ class EtradeConsumer:
 
         if not os.path.exists(self.token_file):
             logger.logMessage("No token file found. Starting OAuth...")
-            if not self.generate_token(open_browser=open_browser):
+            if not self.generate_token():
                 raise Exception("Failed to generate access token.")
         else:
-            self.load_tokens(open_browser=open_browser)
+            self.load_tokens()
 
 
     def get(self, url: str, headers=None, params=None):
@@ -65,6 +72,12 @@ class EtradeConsumer:
                         logger.logMessage(f"API call failed with no response object: {response.error}")
                         return None
                     
+                    # --- detect HTTP 401 Unauthorized ---
+                    if response.status_code == 401:
+                        logger.logMessage("[Auth] Token expired or unauthorized → need to regenerate")
+                        self.token_status.set_status(False)
+                        raise TokenExpiredError("OAuth token expired")
+                    
                     error = json.loads(response.response.text)
                     error_code = error["Error"]["code"]
                     
@@ -77,6 +90,8 @@ class EtradeConsumer:
                     elif error_code not in (10031, 10032):
                         logger.logMessage(f"Error: {error}")
                         
+                except TokenExpiredError as e:
+                    raise
                 except Exception as e:
                     logger.logMessage(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")
         else:
@@ -102,7 +117,7 @@ class EtradeConsumer:
         headers = headers or {}
         headers.update({
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.access_token}"
+            "Authorization": f"Bearer {self.oauth_token}"
         })
         
         if self.apiWorker is not None:
@@ -134,7 +149,7 @@ class EtradeConsumer:
         headers = headers or {}
         headers.update({
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.access_token}"
+            "Authorization": f"Bearer {self.oauth_token}"
         })
 
         if self.apiWorker is not None:
@@ -156,7 +171,7 @@ class EtradeConsumer:
 
 
     # ------------------- TOKENS -------------------
-    def load_tokens(self, open_browser=True):
+    def load_tokens(self, generate_new_token=True):
         """Load saved tokens or generate if missing/expired."""
         token_data = {}
         if os.path.exists(self.token_file):
@@ -178,29 +193,36 @@ class EtradeConsumer:
 
         # Check token age
         token_age_days = (datetime.now(timezone.utc) - datetime.fromtimestamp(created_at, tz=timezone.utc)).days
-        if not self.oauth_token or token_age_days >= TOKEN_LIFETIME_DAYS:
+        if (not self.oauth_token or token_age_days >= TOKEN_LIFETIME_DAYS) and generate_new_token:
             logger.logMessage(f"Token missing or expired (age={token_age_days}d). Generating new token...")
-            if not self.generate_token(open_browser=open_browser):
+            if not self.generate_token():
                 raise Exception("Failed to generate new OAuth token.")
         else:
             # Extra check: make sure the token actually works with the API
             if not self._check_session_valid():
-                logger.logMessage("Token invalid according to API. Generating new token...")
-                if not self.generate_token(open_browser=open_browser):
-                    raise Exception("Failed to generate new OAuth token.")
+                if generate_new_token:
+                    logger.logMessage("Token invalid according to API. Generating new token...")
+                    if not self.generate_token():
+                        raise Exception("Failed to generate new OAuth token.")
+                else:
+                    logger.logMessage("Existing token invalid but not set up to generate new token")
+            else:
+                logger.logMessage("Loaded token valid")
 
 
 
-    def _validate_tokens(self, open_browser=True):
+    def _validate_tokens(self):
         """
         Validate current tokens; attempt refresh first.
         If refresh fails, fallback to full manual token generation.
         """
         try:
             if self._check_session_valid():
+                self.token_status.set_status(True)
                 return True
-            return self.generate_token(open_browser=open_browser)
+            return self.generate_token()
         except Exception as e:
+            self.token_status.set_status(False)
             logger.logMessage(f"[Token Validation] Exception: {e}")
             return False
 
@@ -214,51 +236,84 @@ class EtradeConsumer:
             logger.logMessage(f"[Token Validation] Session check failed: {e}")
             return False
 
-    def generate_token(self, open_browser=True):
-        """Full manual OAuth flow (unchanged)."""
-        try:
-            request_token_url = f"{self.base_url}/oauth/request_token"
-            oauth = OAuth1Session(self.consumer_key, client_secret=self.consumer_secret, callback_uri="oob")
-            fetch_response = oauth.fetch_request_token(request_token_url)
+    def generate_token(self):
+        """
+        Interactive OAuth flow for E*TRADE with retry logic.
+        User can retry PIN, regenerate a new token/URL, or exit.
+        """
+        while True:
+            # Step 1: Get request token
+            try:
+                request_token_url = f"{self.base_url}/oauth/request_token"
 
-            resource_owner_key = fetch_response.get("oauth_token")
-            resource_owner_secret = fetch_response.get("oauth_token_secret")
+                oauth = OAuth1Session(
+                    self.consumer_key,
+                    client_secret=self.consumer_secret,
+                    callback_uri="oob"
+                )
+                fetch_response = oauth.fetch_request_token(request_token_url)
+                resource_owner_key = fetch_response.get("oauth_token")
+                resource_owner_secret = fetch_response.get("oauth_token_secret")
+            except Exception as e:
+                logger.logMessage(f"[Auth] Failed to obtain request token: {e}")
+                return
 
+            # Step 2: Provide user the authorization URL            
             authorize_base = "https://us.etrade.com/e/t/etws/authorize"
             params = {"key": self.consumer_key, "token": resource_owner_key}
             authorization_url = f"{authorize_base}?{urlencode(params)}"
-            logger.logMessage("Please go to the following URL to authorize access:")
-            logger.logMessage(authorization_url)
-            if open_browser:
-                webbrowser.open(authorization_url)
+            logger.logMessage(f"[Auth] Please go to this URL and authorize: {authorization_url}")
 
-            verifier = input("Paste the verifier code here: ")
+            # Step 3: Prompt for PIN until success, restart, or exit
+            while True:
+                verifier = input(
+                    "[Auth] Enter the 7-digit PIN "
+                    "(or type 'restart' for new URL, 'exit' to cancel): "
+                ).strip()
 
-            access_token_url = f"{self.base_url}/oauth/access_token"
-            oauth = OAuth1Session(
-                self.consumer_key,
-                client_secret=self.consumer_secret,
-                resource_owner_key=resource_owner_key,
-                resource_owner_secret=resource_owner_secret,
-                verifier=verifier
-            )
-            token_response = oauth.fetch_access_token(access_token_url)
+                if verifier.lower() == "exit":
+                    logger.logMessage("[Auth] User aborted token generation")
+                    return False
+                if verifier.lower() == "restart":
+                    logger.logMessage("[Auth] Restarting OAuth flow with new request token")
+                    break  # break inner loop, restart outer flow
 
-            self.oauth_token = token_response.get("oauth_token")
-            self.oauth_token_secret = token_response.get("oauth_token_secret")
+                access_token_url = f"{self.base_url}/oauth/access_token"
 
-            self.session = OAuth1Session(
-                self.consumer_key,
-                client_secret=self.consumer_secret,
-                resource_owner_key=self.oauth_token,
-                resource_owner_secret=self.oauth_token_secret,
-            )
-            self.save_tokens()
-            logger.logMessage("✅ Access token obtained successfully.")
-            return True
-        except Exception as e:
-            logger.logMessage(f"[ERROR] Failed to generate token: {e}")
+                try:
+                    # Step 4: Exchange PIN for access token
+                    oauth = OAuth1Session(
+                        self.consumer_key,
+                        client_secret=self.consumer_secret,
+                        resource_owner_key=resource_owner_key,
+                        resource_owner_secret=resource_owner_secret,
+                        verifier=verifier
+                    )
+                    access_token_response = oauth.fetch_access_token(access_token_url)
+
+                    # Store tokens
+                    self.oauth_token = access_token_response.get("oauth_token")
+                    self.oauth_token_secret = access_token_response.get("oauth_token_secret")                    # Persist to disk
+                    self.session = OAuth1Session(
+                        self.consumer_key,
+                        client_secret=self.consumer_secret,
+                        resource_owner_key=self.oauth_token,
+                        resource_owner_secret=self.oauth_token_secret,
+                    )                    
+                    self.save_tokens()
+
+                    logger.logMessage("[Auth] Access token successfully obtained and saved")
+                    self.token_status.set_status(True)
+                    return True
+                except Exception as e:
+                    self.token_status.set_status(False)
+                    logger.logMessage(f"[Auth] Invalid PIN or error during exchange: {e}")
+                    logger.logMessage("[Auth] Try again, type 'restart' for new URL, or 'exit'.")
+                    continue  # loop again for new PIN
+            
+            #We shouldn't hit this so trigger as failure
             return False
+
 
     def save_tokens(self):
         """Save the current token data to disk with a timestamp."""
@@ -268,8 +323,7 @@ class EtradeConsumer:
                 "oauth_token_secret": self.oauth_token_secret,
                 "created_at": int(pyTime.time())  # store as epoch
             }, f)
-
-
+        self.token_status.set_status(True)
 
     # ------------------- HELPERS -------------------
     def get_headers(self):
@@ -408,6 +462,7 @@ class EtradeConsumer:
 
 
 # ------------------- FORCE TOKEN GENERATION (OUTSIDE CLASS) -------------------
-def force_generate_new_token(open_browser=False, sandbox=False):
-    consumer = EtradeConsumer(open_browser=open_browser, sandbox=sandbox)
+def force_generate_new_token(sandbox=False):
+    consumer = EtradeConsumer(sandbox=sandbox)
     return
+

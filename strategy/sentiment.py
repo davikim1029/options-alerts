@@ -12,7 +12,12 @@ from services.core.cache_manager import NewsApiCache,RateLimitCache
 from typing import Optional,Union
 
 MAX_LEN = 250  # trim text before passing to model
-sentiment_pipeline = pipeline("sentiment-analysis", device=-1)
+sentiment_pipeline = pipeline(
+    "sentiment-analysis",
+    model="distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+    revision="714eb0f",  # optional, pins the exact version
+    device=-1
+)
 
 ETF_LOOKUP = {
     "Technology": "XLK",

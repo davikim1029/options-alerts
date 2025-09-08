@@ -29,6 +29,19 @@ class CacheManager:
         self.ttl_hours = ttl_hours
         self.ttl_minutes = ttl_minutes
         self.autosave_interval = autosave_interval
+        
+        # ------------------------
+        # New global scanner config
+        # ------------------------
+        self.scanner_config = {
+            "parallel": os.environ.get("BUY_PARALLEL", "1") == "1",
+            "max_workers": int(os.environ.get("BUY_MAX_WORKERS", "8")),
+            "min_volume": int(os.environ.get("MIN_VOLUME", "50")),
+            "min_ask_cents": int(os.environ.get("MIN_ASK_CENTS", "5")),
+            "max_ask_cents": int(os.environ.get("MAX_ASK_CENTS", "50")),
+            "strike_range_pct": int(os.environ.get("STRIKE_RANGE_PCT", "20"))
+        }
+
 
         try:
             ShutdownManager.register(self.name, lambda reason=None: self._save_cache())

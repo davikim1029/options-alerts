@@ -1,7 +1,9 @@
 # main.py
 import os
+import sys
 import argparse
 from dotenv import load_dotenv
+from services.utils import yes_no
 from services.apitest import run_api_test
 from services.scanner.scanner import run_scan
 from services.etrade_consumer import EtradeConsumer, force_generate_new_token
@@ -32,21 +34,34 @@ def get_mode_from_prompt():
         ("quit", "Exit program")
     ]
 
-    print("Available modes:")
-    for i, (key, desc) in enumerate(modes, start=1):
-        print(f"  {i}. {desc} [{key}]")
-    
-    choice = input("\nEnter mode number (default 1): ").strip()
-    if not choice:
-        return "scan"
-    try:
-        index = int(choice) - 1
-        if 0 <= index < len(modes):
-            return modes[index][0]
-    except ValueError:
-        pass
-    print("Invalid choice, defaulting to 'scan'.")
-    return "scan"
+    while True:
+        print("Available modes:")
+        for i, (key, desc) in enumerate(modes, start=1):
+            print(f"  {i}. {desc} [{key}]")
+        
+        choice = input("\nEnter mode number (default 1): ").strip()
+        
+        if choice in ("q", "quit", "6"):
+            print("Exiting program.")
+            return "quit"
+        
+        if not choice:
+            run_scan = yes_no("Run Scan? (default is yes)")
+            if run_scan:
+                return "scan"
+            else:
+                continue
+        try:
+            index = int(choice) - 1
+            if 0 <= index < len(modes):
+                return modes[index][0]
+        except ValueError:
+            pass
+        print("Invalid choice, try again.")
+          
+    #If we somehow are here, exit
+    return "quit"
+
 
 
 def main():
@@ -68,6 +83,8 @@ def main():
         mode = args.mode.lower() if args.mode else get_mode_from_prompt()
         
         if mode == "quit":
+            ThreadManager.instance().stop_all()
+            sys.exit(0)
             break
 
         debug = False

@@ -42,7 +42,7 @@ class TokenStatus:
                 self.set_status(valid=False)
                 return False
 
-    def wait_until_valid(self, check_interval=10):
+    def wait_until_valid(self, check_interval=60):
         """
         Block until token status is valid.
         Useful for scanners that should pause until tokens are refreshed.

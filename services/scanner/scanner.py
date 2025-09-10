@@ -155,7 +155,7 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
           "start_time": getattr(buy_mod, "DEFAULT_START_TIME", None),
           "end_time": getattr(buy_mod, "DEFAULT_END_TIME", None),
           "cooldown_seconds": getattr(buy_mod, "DEFAULT_COOLDOWN_SECONDS", 300),
-          "force_first_run": True,
+          "force_first_run": False,
       },
       daemon=True,
       reload_files=[

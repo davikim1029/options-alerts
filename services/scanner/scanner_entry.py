@@ -22,5 +22,5 @@ def start_scanner(debug=False):
         manager.wait_for_shutdown()
 
     except KeyboardInterrupt:
-        logger.logMessage("[Main] KeyboardInterrupt → stopping threads")
+        logger.logMessage("[Main] KeyboardInterrupt, stopping threads")
         manager.stop_all()

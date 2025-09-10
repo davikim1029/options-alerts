@@ -45,7 +45,6 @@ processed_counter = 0
 # Global lock for safe ApiWorker access
 api_worker_lock = threading.Lock()
 print("[Buy Scanner] Module loaded/reloaded")  # Hot reload indicator
-MODULE_REVISION = None
 
 # ------------------------- Helpers -------------------------
 
@@ -70,7 +69,7 @@ executor = None
 
 def _reset_globals():
     global counter_lock, total_tickers, processed_counter, api_worker_lock
-    global MODULE_REVISION, _printed_revision, fallback_cache, executor
+    global fallback_cache, executor
 
     # Shutdown old executor if it exists
     if executor:
@@ -85,8 +84,6 @@ def _reset_globals():
     total_tickers = 0
     processed_counter = 0
     _printed_revision = False
-    MODULE_REVISION = f"{time.time():.3f}"
-    logger.logMessage(f"[Buy Scanner] _reset_globals → MODULE_REVISION={MODULE_REVISION}")
 
     # Reset fallback cache
     fallback_cache = _DictCacheFallback()
@@ -95,12 +92,20 @@ def _reset_globals():
 
 _reset_globals()  # call on module load/reload
 
-
+token_status = TokenStatus()
 def safe_get_option_chain(consumer, ticker):
     """Wrap ApiWorker calls to avoid timeouts from concurrent threads."""
-    with api_worker_lock:
-        options, has_options = consumer.get_option_chain(ticker)
-    return options, has_options
+    try:
+        with api_worker_lock:
+            options, has_options = consumer.get_option_chain(ticker)
+        return options, has_options
+    except TokenExpiredError:
+        logger.logMessage("[Buy Scanner] Token expired, pausing scanner.")
+        send_alert("E*TRADE token expired. Please re-authenticate.")
+        token_status.wait_until_valid(check_interval=30)
+        consumer.load_tokens(generate_new_token=False)
+        logger.logMessage("[Buy Scanner] Token restored, resuming scan.")
+        
 
 def _should_keep_option(opt, underlying_guess, config):
     """Contract-level pruning: volume, ask, strike range."""
@@ -141,6 +146,8 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
 
     ignore_cache = getattr(caches, "ignore", None)
     bought_cache = getattr(caches, "bought", None)
+    last_ticker_cache = getattr(caches, "last_seen", None)
+    
     eval_cache = getattr(caches, "eval", None)
     ticker_metadata_cache = getattr(caches, "ticker_metadata", fallback_cache)
 
@@ -155,8 +162,11 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
     global processed_counter
     with counter_lock:
         processed_counter += 1
-        if processed_counter % 25 == 0 or processed_counter == total_tickers:
-            logger.logMessage(f"[Buy Scanner] Completed {processed_counter}/{total_tickers} tickers (rev={MODULE_REVISION})")
+        if processed_counter % 20 == 0 or processed_counter == total_tickers:
+            logger.logMessage(f"[Buy Scanner] Completed {processed_counter}/{total_tickers} tickers")
+            
+        if processed_counter % 5 == 0 and last_ticker_cache:
+                    last_ticker_cache.add("lastSeen", ticker)
 
     # ----------------------- Cached metadata -----------------------
     meta = ticker_metadata_cache.get(ticker, {})
@@ -231,7 +241,7 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
 
             try:
                 if getattr(opt, "ask", 99999) * 100 < 50:
-                    msg = f"[Buy Scanner] BUY: {ticker} → {getattr(opt, 'displaySymbol', '?')}/Ask: {opt.ask*100}{secondary_failure}"
+                    msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {opt.ask*100}{secondary_failure}"
                     send_alert(msg)
             except Exception:
                 pass
@@ -260,13 +270,9 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
 def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debug=False):
     logger.logMessage("[Buy Scanner] Starting run_buy_scan")
     _reset_globals()  # reset counters and locks at each run
-    token_status = TokenStatus()
     
-    ignore_cache = getattr(caches, "ignore", None)
-    bought_cache = getattr(caches, "bought", None)
     news_cache = getattr(caches, "news", None)
     rate_cache = getattr(caches, "rate", None)
-    eval_cache = getattr(caches, "eval", None)
     ticker_cache = getattr(caches, "ticker", None)
     last_ticker_cache = getattr(caches, "last_seen", None)
 
@@ -286,7 +292,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debu
     if start_index >= len(ticker_keys)-1:
         start_index = 0
 
-    logger.logMessage(f"[Buy Scanner] Processing tickers {start_index} to {len(ticker_keys)}")
+    logger.logMessage(f"[Buy Scanner] Processing tickers {start_index} of {len(ticker_keys)}")
 
     context = {"exposure": consumer.get_open_exposure(), "consumer": consumer}
     scanner_config = getattr(caches, "scanner_config", {}) or {}
@@ -308,10 +314,6 @@ def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debu
             for idx, ticker in enumerate(ticker_keys[start_index:], start=start_index):
                 if stop_event.is_set():
                     break
-                counter += 1
-                if counter % 5 == 0 and last_ticker_cache:
-                    last_ticker_cache.add("lastSeen", ticker)
-
                 # fetch the *current* function from module right before submitting
                 process_fn = _get_process_ticker()
 
@@ -326,14 +328,6 @@ def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debu
                     break
                 try:
                     fut.result()
-                except TokenExpiredError:
-                    logger.logMessage("[Buy Scanner] Token expired → pausing scanner.")
-                    send_alert("⚠️ E*TRADE token expired. Please re-authenticate.")
-                    for f in futures:
-                        f.cancel()
-                    token_status.wait_until_valid(check_interval=30)
-                    consumer.load_tokens(generate_new_token=False)
-                    logger.logMessage("[Buy Scanner] Token restored → resuming scan.")
                 except Exception as e:
                     t = futures.get(fut, "?")
                     logger.logMessage(f"[Buy Scanner Error] {t}: {e}")
@@ -358,7 +352,9 @@ def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debu
     finally:
         force_shutdown_executor()
 
-    logger.logMessage(f"[Buy Scanner] Completed run. Next run: {get_next_run_date(seconds_to_wait)}")
-    if last_ticker_cache:
-        last_ticker_cache.clear()
-        last_ticker_cache._save_cache()
+    if stop_event.is_set():
+        logger.logMessage(f"[Buy Scanner] Run stopped due to stop flag being set")
+    else:
+        logger.logMessage(f"[Buy Scanner] Completed run. Next run: {get_next_run_date(seconds_to_wait)}")
+        if last_ticker_cache:
+            last_ticker_cache.clear()

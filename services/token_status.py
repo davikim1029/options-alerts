@@ -20,7 +20,7 @@ class TokenStatus:
                 with open(self.filepath, "r") as f:
                     json.load(f)  # just try to parse
             except Exception:
-                # corrupted → overwrite clean
+                # corrupted file, overwrite clean
                 self.set_status(valid=True)
 
     def set_status(self, valid: bool):
@@ -48,6 +48,6 @@ class TokenStatus:
         Useful for scanners that should pause until tokens are refreshed.
         """
         while not self.is_valid():
-            logger.logMessage("[TokenStatus] Token invalid → waiting...")
+            logger.logMessage("[TokenStatus] Token invalid, waiting...")
             time.sleep(check_interval)
-        logger.logMessage("[TokenStatus] Token valid → resuming work")
+        logger.logMessage("[TokenStatus] Token valid, resuming work")

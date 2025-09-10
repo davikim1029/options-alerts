@@ -252,7 +252,7 @@ class ThreadManager:
           self._threads[name] = new_wrapper
           new_wrapper.start()
   
-          logger.logMessage(f"[Watcher] Reload complete for {name} → kwargs updated: {list(new_kwargs.keys())}")
+          logger.logMessage(f"[Watcher] Reload complete for {name}, kwargs updated: {list(new_kwargs.keys())}")
 
     # ---------------------------
     # Wait for shutdown
@@ -262,7 +262,7 @@ class ThreadManager:
             while not self._manager_stop_event.is_set():
                 time.sleep(0.5)
         except KeyboardInterrupt:
-            logger.logMessage("[ThreadManager] KeyboardInterrupt received → stopping all")
+            logger.logMessage("[ThreadManager] KeyboardInterrupt received, stopping all")
             self.stop_all()
 
 

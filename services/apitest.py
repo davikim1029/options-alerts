@@ -1,7 +1,7 @@
 # apitest.py
 
 def run_api_test(consumer):
-    print("\n📡 E*TRADE API Testing Mode\n")
+    print("\n E*TRADE API Testing Mode\n")
     print("Choose an action:")
     print("1. Get account balance")
     print("2. Get current holdings")

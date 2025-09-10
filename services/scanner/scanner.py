@@ -68,7 +68,7 @@ def input_processor(stop_event):
         try:
             lower = cmd.strip().lower()
             if lower == "exit":
-                logger.logMessage("[Input Processor] Shutdown command received → signaling stop")
+                logger.logMessage("[Input Processor] Shutdown command received, signaling stop")
                 ThreadManager.instance().stop_all()
                 return
             elif lower == "renew_token":

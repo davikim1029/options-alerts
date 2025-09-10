@@ -32,7 +32,7 @@ def get_mode_from_prompt():
         ("quit", "Exit program")
     ]
 
-    print("📋 Available modes:")
+    print("Available modes:")
     for i, (key, desc) in enumerate(modes, start=1):
         print(f"  {i}. {desc} [{key}]")
     

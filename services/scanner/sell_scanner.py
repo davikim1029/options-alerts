@@ -79,7 +79,7 @@ def run_sell_scan(
                     # Build alert message
                     gainPct = pos.totalGainPct
                     gain = pos.totalGain
-                    msg = f"SELL: {pos.Product['symbol']} → {pos.symbolDescription} | Gain: {gain}/Gain Pct: {gainPct}{secondary_failure}"
+                    msg = f"SELL: {pos.Product['symbol']}, {pos.symbolDescription} | Gain: {gain}/Gain Pct: {gainPct}{secondary_failure}"
 
                     # Send alert
                     send_alert(msg)

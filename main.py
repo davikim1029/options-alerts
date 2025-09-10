@@ -81,6 +81,7 @@ def main():
     
     while True:
         mode = args.mode.lower() if args.mode else get_mode_from_prompt()
+        args.mode = None #After get it mode the first time, reset for additional iterations
         
         if mode == "quit":
             ThreadManager.instance().stop_all()
@@ -124,6 +125,10 @@ def main():
             
         else:
             print("Invalid mode selected.")
+          
+        #force shutdown of threads  
+        ThreadManager.instance().stop_all()
+
 
 
 if __name__ == "__main__":

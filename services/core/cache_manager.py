@@ -3,7 +3,7 @@ import json
 import os
 import tempfile
 from datetime import datetime, timedelta, timezone
-from threading import Lock
+from threading import RLock
 from services.core.shutdown_handler import ShutdownManager
 from services.logging.logger_singleton import logger
 
@@ -21,7 +21,7 @@ class CacheManager:
                  ttl_minutes: float = None,
                  autosave_interval: int = 60):
         self._cache = {}
-        self._lock = Lock()
+        self._lock = RLock()
 
         self.name = name
         self.filepath = filepath
@@ -75,27 +75,28 @@ class CacheManager:
             logger.logMessage(f"[{self.name}] Cache file empty or corrupted, starting fresh")
         except Exception as e:
             logger.logMessage(f"[{self.name}] Failed to load cache: {e}")
-
+            
     def _save_cache(self):
         try:
+            # Copy under lock
             with self._lock:
-                serializable = {
-                    k: {"Value": v["Value"], "Timestamp": v["Timestamp"].isoformat()}
-                    for k, v in self._cache.items()
-                }
+                cache_copy = dict(self._cache)
 
-            # Write to a temp file first
+            serializable = {
+                k: {"Value": v["Value"], "Timestamp": v["Timestamp"].isoformat()}
+                for k, v in cache_copy.items()
+            }
+
             dir_name = os.path.dirname(self.filepath)
             with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as tmp:
                 json.dump(serializable, tmp, indent=2, default=str)
                 tmp.flush()
-                os.fsync(tmp.fileno())  # ensure data is on disk
+                os.fsync(tmp.fileno())
 
-            # Atomically replace the old file
             os.replace(tmp.name, self.filepath)
-
         except Exception as e:
             logger.logMessage(f"[{self.name}] Failed to save cache: {e}")
+
 
     def autosave_loop(self, stop_event):
         while not stop_event.is_set():
@@ -144,7 +145,7 @@ class CacheManager:
     def clear(self):
         with self._lock:
             self._cache.clear()
-            self._save_cache()
+        self._save_cache()
 
     def is_empty(self):
         return not bool(self._cache)

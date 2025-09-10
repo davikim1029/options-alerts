@@ -1,294 +1,268 @@
-# services/threading/thread_manager.py
-import sys
 import threading
-import importlib
-import importlib.util
-import time as pytime
-from services.logging.logger_singleton import logger
-from datetime import datetime, time
+import time
 from pathlib import Path
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-from services.core.shutdown_handler import ShutdownManager
+import os
+import sys
+import importlib
+from datetime import datetime
+from services.logging.logger_singleton import logger
+from services.helpers import snapshot_module
 
-
-class ThreadWrapper:
-    def __init__(self, name, 
-                 target_func, 
-                 args=None, 
-                 kwargs=None, 
-                 daemon=True, 
-                 reload_files=None,
-                 start_time=None, 
-                 end_time=None, 
-                 cooldown_seconds=None,
-                 parent=None,
-                 update_vars=None
-                 ):
-        self.name = name
+class ThreadWrapper(threading.Thread):
+    def __init__(self, name, target_func, kwargs=None, daemon=True,
+                 start_time=None, end_time=None, cooldown_seconds=None,
+                 reload_files=None, parent=None, update_vars=None):
+        super().__init__(name=name, daemon=daemon)
         self._target_func = target_func
-        self._args = args or ()
         self._kwargs = kwargs or {}
-        self._daemon = daemon
-        self.reload_files = reload_files or []
-        self.update_vars = update_vars or {}  # mapping: wrapper_attr -> module_var_name
-
-        
-        # scheduling
-        self.start_time = start_time
-        self.end_time = end_time
-        self.cooldown_seconds = cooldown_seconds
-
-        # parent tracking
-        self.parent = parent
-
-        # --- Store the module where the target function actually lives ---
-        self._module_name = target_func.__module__
-
+        self._start_time = start_time
+        self._end_time = end_time
+        self._cooldown_seconds = cooldown_seconds
+        self._reload_files = [Path(f).resolve() for f in (reload_files or [])]
+        self._parent = parent
+        self._update_vars = update_vars or {}
         self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._schedule_wrapper, name=name, daemon=daemon)
+        self._reload_event = threading.Event()
+        self._thread_lock = threading.Lock()
 
-    def start(self):
-        self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._schedule_wrapper, name=self.name, daemon=self._daemon)
-        self._thread.start()
-        
-    def _within_schedule(self):
-        now = datetime.now().time()
-        if self.start_time and now < self.start_time:
-            return False
-        if self.end_time and now > self.end_time:
-            return False
-        return True
-    
-    def _schedule_wrapper(self):
+    def run(self):
         while not self._stop_event.is_set():
-            if not self._within_schedule():
-                pytime.sleep(30)
-                continue
-
             try:
-                self._target_func(*self._args, stop_event=self._stop_event, **self._kwargs)
-            except Exception as e:
-                logger.logMessage(f"[ThreadWrapper][{self.name}] Crashed: {e}")
+                # Wait until start_time if defined
+                if self._start_time:
+                    now = datetime.now().time()
+                    start_seconds = self._start_time.hour*3600 + self._start_time.minute*60 + self._start_time.second
+                    now_seconds = now.hour*3600 + now.minute*60 + now.second
+                    if now_seconds < start_seconds:
+                        time.sleep(min(1, start_seconds - now_seconds))
+                        continue
 
-            if self.cooldown_seconds:
-                logger.logMessage(f"[ThreadWrapper][{self.name}] Cooling down for {self.cooldown_seconds/60} mins")
-                waited = 0
-                while waited < self.cooldown_seconds and not self._stop_event.is_set():
-                    pytime.sleep(1)
-                    waited += 1
-            else:
+                # Run the main function
+                self._target_func(stop_event=self._stop_event, **self._kwargs)
+
+                # Handle cooldown
+                if self._cooldown_seconds:
+                    for _ in range(int(self._cooldown_seconds)):
+                        if self._stop_event.is_set() or self._reload_event.is_set():
+                            break
+                        time.sleep(1)
+                else:
+                    break
+
+                # Handle end_time
+                if self._end_time:
+                    now = datetime.now().time()
+                    end_seconds = self._end_time.hour*3600 + self._end_time.minute*60 + self._end_time.second
+                    now_seconds = now.hour*3600 + now.minute*60 + now.second
+                    if now_seconds >= end_seconds:
+                        break
+
+                # Handle reload
+                if self._reload_event.is_set():
+                    self._reload_event.clear()
+                    logger.logMessage(f"[{self.name}] Reloading triggered")
+                    # No need to restart thread here; watcher recreates wrapper
+
+            except Exception as e:
+                logger.logMessage(f"[{self.name}] crashed: {e}")
                 break
 
     def stop(self):
         self._stop_event.set()
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=5)
-        
-    def join(self, timeout=None):
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=timeout)
+        self._reload_event.set()
 
 
 class ThreadManager:
     _instance = None
-    _instance_lock = threading.Lock()
+    _lock = threading.Lock()
 
     @classmethod
-    def instance(cls, consumer=None, caches=None):
-        with cls._instance_lock:
+    def instance(cls, **kwargs):
+        with cls._lock:
             if cls._instance is None:
-                cls._instance = cls(consumer, caches)
+                cls._instance = cls(**kwargs)
         return cls._instance
 
     def __init__(self, consumer=None, caches=None):
-        self.consumer = consumer
-        self.caches = caches
         self._threads = {}
-        self._observer = None
-        self._watch_folder = None
-        self._observer_lock = threading.Lock()
-        self._parent_map = {}  # parent_name -> set of thread names
+        self._consumer = consumer
+        self._caches = caches
+        self._watch_dir = None
+        self._file_timestamps = {}
+        self._watcher_thread = None
+        self._manager_stop_event = threading.Event()
+        self._reload_queue = set()
+        self._initial_scan_done = False
 
-    # ----------------------------
-    # Thread management
-    # ----------------------------
-    def add_thread(self, name, target_func, args=None, kwargs=None, daemon=True, reload_files=None,
-                   start_time=None, end_time=None, cooldown_seconds=None, parent=None,update_vars=None):
-        wrapper = ThreadWrapper(
-            name=name,
-            target_func=target_func,
-            args=args,
-            kwargs=kwargs,
-            daemon=daemon,
-            reload_files=reload_files,
-            start_time=start_time,
-            end_time=end_time,
-            cooldown_seconds=cooldown_seconds,
-            parent=parent,
-            update_vars=update_vars
-        )
-        
-        existing = self._threads.get(name)
-        if existing and existing._thread and existing._thread.is_alive():
-            if parent:
-                # Stop and remove old thread so we can apply updated params
-                logger.logMessage(f"[ThreadManager] Hot reload: stopping old thread '{name}' to apply new params")
-                existing.stop()
-                existing.join(timeout=5)
-                del self._threads[name]
-            else:
-                logger.logMessage(f"[ThreadManager] Thread '{name}' already running, skipping add_thread")
-                return existing
+    # ---------------------------
+    # Thread registration
+    # ---------------------------
+    def add_thread(
+    self,
+    name,
+    target_func,
+    kwargs=None,
+    daemon=True,
+    start_time=None,
+    end_time=None,
+    cooldown_seconds=None,
+    reload_files=None,
+    parent=None,
+    update_vars=None,
+    module_dependencies=None,   # <-- NEW: list of modules to reload first
+    ):
+      wrapper = ThreadWrapper(
+          name=name,
+          target_func=target_func,
+          kwargs=kwargs,
+          daemon=daemon,
+          start_time=start_time,
+          end_time=end_time,
+          cooldown_seconds=cooldown_seconds,
+          reload_files=reload_files,
+          parent=parent,
+          update_vars=update_vars
+      )
+      wrapper._module_dependencies = module_dependencies or []
+      self._threads[name] = wrapper
+      wrapper.start()
+      logger.logMessage(f"[ThreadManager] Started thread {name}")
 
-
-        self._threads[name] = wrapper
-        if parent:
-            self._parent_map.setdefault(parent, set()).add(name)
-        wrapper.start()
-
-    def reload_parent(self, parent_name):
-        """Stop and restart all child threads of a parent."""
-        children = self._parent_map.get(parent_name, set())
-        for name in children:
-            wrapper = self._threads.get(name)
-            if wrapper:
-                logger.logMessage(f"[ThreadManager] Hot-reloading child thread '{name}' of parent '{parent_name}'")
-                wrapper.stop()
-                wrapper.join(timeout=5)
-                wrapper.start()
-
+    # ---------------------------
+    # Stop threads
+    # ---------------------------
     def stop_all(self):
-        logger.logMessage("[ThreadManager] Stopping all threads...")
-        current = threading.current_thread()
+        for t in self._threads.values():
+            t.stop()
+        for t in self._threads.values():
+            t.join()
+        logger.logMessage("[ThreadManager] All threads stopped")
 
-        for wrapper in list(self._threads.values()):
-            thread = wrapper._thread
-            if thread is not None and thread.is_alive():
-                if thread is current:
-                    logger.logMessage(f"[ThreadManager] Skipping stop/join on self: {thread.name}")
-                    continue
-            wrapper.stop()
+    # ---------------------------
+    # File watcher (hot-reload)
+    # ---------------------------
+    def start_watcher(self, watch_dir: Path):
+        self._watch_dir = watch_dir.resolve()
+        self._file_timestamps = self._scan_files()
+        self._watcher_thread = threading.Thread(target=self._watch_loop, daemon=True)
+        self._watcher_thread.start()
+        self._initial_scan_done = True
+        logger.logMessage(f"[ThreadManager] Started file watcher on {self._watch_dir}")
 
-        if self._observer:
-            self._observer.stop()
-            self._observer.join()
-            self._observer = None
+    def _scan_files(self):
+        file_timestamps = {}
+        if not self._watch_dir:
+            return file_timestamps
+        for root, _, files in os.walk(self._watch_dir):
+            for f in files:
+                if f.endswith(".py"):
+                    path = Path(root) / f
+                    try:
+                        file_timestamps[path.resolve()] = path.stat().st_mtime
+                    except FileNotFoundError:
+                        continue
+        return file_timestamps
 
-        logger.logMessage("[ThreadManager] All threads stopped.")
+    def _watch_loop(self):
+        while not self._manager_stop_event.is_set():
+            current_files = self._scan_files()
+            for path, mtime in current_files.items():
+                if path not in self._file_timestamps or self._file_timestamps[path] < mtime:
+                    self._file_timestamps[path] = mtime
+                    if self._initial_scan_done:
+                        self._handle_file_change(path)
+            time.sleep(1)
 
-    # ----------------------------
-    # Hot reload
-    # ----------------------------
-    def start_watcher(self, folder: Path):
-        with self._observer_lock:
-            if self._observer is not None:
-                self._observer.stop()
-                self._observer.join()
+    def reload_modules_in_order(self, module_names, visited=None):
+        """Reload a list of modules in dependency order."""
+        visited = visited or set()
+        for mod_name in module_names:
+            if mod_name in visited:
+                continue
+            visited.add(mod_name)
 
-            self._watch_folder = folder.resolve()
-            event_handler = FileSystemEventHandler()
-            event_handler.on_any_event = self._on_any_event
-            self._observer = Observer()
-            self._observer.schedule(event_handler, str(self._watch_folder), recursive=True)
-            self._observer.start()
-            for idx, t in enumerate(threading.enumerate()):
-                if t.name.startswith("Thread-") and t.daemon:
-                    t.name = f"WatchdogThread-{idx+1}"
-            logger.logMessage(f"[ThreadManager] Watchdog started for folder: {self._watch_folder}")
+            # reload dependencies recursively if this module has dependencies
+            thread = next((t for t in self._threads.values()
+                        if t._target_func.__module__ == mod_name), None)
+            if thread and getattr(thread, "_module_dependencies", None):
+                self.reload_modules_in_order(thread._module_dependencies, visited)
 
-    def _on_any_event(self, event):
-        if event.is_directory:
-            return
-        path = Path(event.src_path).resolve()
-        logger.logMessage(f"[ThreadManager] Detected {event.event_type} on {path}")
-        self.hot_reload(path)
-
-    def hot_reload(self, changed_file_path):
-        
-        matched = False
-        for wrapper in list(self._threads.values()):
-            for file in wrapper.reload_files:
-                abs_file = str(Path(file).resolve())
-                if abs_file == str(Path(changed_file_path).resolve()):
-                    matched = True
-
-                    # Stop & join the thread
-                    wrapper.stop()
-                    wrapper.join(timeout=5)
-
-                    # Reload relevant modules
-                    for reload_file in wrapper.reload_files:
-                        if reload_file.endswith(".pyc"):
-                            continue
-                        module_name = self._path_to_module(reload_file)
-                        if module_name in sys.modules:
-                            logger.logMessage(f"[ThreadManager][HotReload] Reloading module {module_name}")
-                            module = importlib.reload(sys.modules[module_name])
-                        else:
-                            spec = importlib.util.spec_from_file_location(module_name, reload_file)
-                            module = importlib.util.module_from_spec(spec)
-                            sys.modules[module_name] = module
-                            spec.loader.exec_module(module)
-
-                    # Update function reference
-                    module_name = wrapper._target_func.__module__
-                    func_name = wrapper._target_func.__name__
-                    module = sys.modules[module_name]
-                    wrapper._target_func = getattr(module, func_name)
-
-                    # --- Generalized scheduling param updates ---
-                    if wrapper.update_vars:
-                        for attr, module_var in wrapper.update_vars.items():
-                            if hasattr(module, module_var):
-                                new_val = getattr(module, module_var)
-                                setattr(wrapper, attr, new_val)
-                                logger.logMessage(f"[ThreadManager] Updated '{wrapper.name}.{attr}' = {new_val}")
-
-                    # Restart the thread
-                    wrapper.start()
-
-                    # Also hot-reload all child threads of the same parent
-                    if wrapper.parent:
-                        self.reload_parent(wrapper.parent)
-
-    # ----------------------------
-    # Utilities
-    # ----------------------------
-    def _path_to_module(self, path):
-        """
-        Convert a full file path into a proper Python module name for importlib.
-        Example:
-        /Users/daviskim/Documents/GitHub/options/options-alerts/services/scanner/scanner.py
-        -> services.scanner.scanner
-        """
-        p = Path(path).resolve()
-        parts = list(p.parts)
-
-        try:
-            # Find 'services' folder
-            idx = parts.index("services")
-        except ValueError:
-            logger.logMessage(f"[ThreadManager] Could not find 'services' in path: {path}")
-            return p.stem  # fallback
-
-        # Take everything from 'services' onward
-        mod_parts = parts[idx:]
-        # Replace last part with stem (remove .py)
-        mod_parts[-1] = p.stem
-        # Join with dots, no leading dot
-        module_name = ".".join(mod_parts)
-        return module_name
+            # reload the module
+            if mod_name in sys.modules:
+                module = sys.modules[mod_name]
+                importlib.reload(module)
+                print(f"[HotReload] Reloaded {mod_name}")
+            else:
+                module = importlib.import_module(mod_name)
+                print(f"[HotReload] Imported fresh {mod_name}")
 
 
+    def _handle_file_change(self, filepath: Path):
+      logger.logMessage(f"[Watcher] Detected change in {filepath}")
+      filepath = filepath.resolve()
+  
+      for name, wrapper in list(self._threads.items()):
+          if filepath not in [Path(f).resolve() for f in wrapper._reload_files]:
+              continue
+  
+          logger.logMessage(f"[Watcher] Reloading thread {name} due to change in {filepath}")
+  
+          # Stop the old thread
+          wrapper.stop()
+          wrapper.join()
+  
+          # Reload modules in dependency order
+          modules_to_reload = wrapper._module_dependencies + [wrapper._target_func.__module__]
+          self.reload_modules_in_order(modules_to_reload)
+  
+          # Get fresh target function
+          module = sys.modules[wrapper._target_func.__module__]
+          new_target = getattr(module, wrapper._target_func.__name__)
+  
+          # Prepare new kwargs (update vars & module defaults)
+          new_kwargs = dict(wrapper._kwargs)
+          for key, candidate_list in (
+              ("start_time", ["START_TIME", "DEFAULT_START_TIME"]),
+              ("end_time", ["END_TIME", "DEFAULT_END_TIME"]),
+              ("cooldown_seconds", ["COOLDOWN_SECONDS", "DEFAULT_COOLDOWN_SECONDS"])
+          ):
+              for candidate in candidate_list:
+                  if hasattr(module, candidate):
+                      new_kwargs[key] = getattr(module, candidate)
+                      break
+  
+          for var_name in getattr(wrapper, "_update_vars", {}):
+              if hasattr(module, var_name):
+                  new_kwargs[var_name] = getattr(module, var_name)
+  
+          # Recreate thread with updated target
+          new_wrapper = ThreadWrapper(
+              name=wrapper.name,
+              target_func=new_target,
+              kwargs=new_kwargs,
+              daemon=wrapper.daemon,
+              start_time=new_kwargs.get("start_time", wrapper._start_time),
+              end_time=new_kwargs.get("end_time", wrapper._end_time),
+              cooldown_seconds=new_kwargs.get("cooldown_seconds", wrapper._cooldown_seconds),
+              reload_files=wrapper._reload_files,
+              parent=wrapper._parent,
+              update_vars=wrapper._update_vars
+          )
+          new_wrapper._module_dependencies = wrapper._module_dependencies
+          self._threads[name] = new_wrapper
+          new_wrapper.start()
+  
+          logger.logMessage(f"[Watcher] Reload complete for {name} → kwargs updated: {list(new_kwargs.keys())}")
 
-        
+    # ---------------------------
+    # Wait for shutdown
+    # ---------------------------
     def wait_for_shutdown(self):
         try:
-            for wrapper in list(self._threads.values()):
-                wrapper.join()
-            if self._observer:
-                self._observer.join()
+            while not self._manager_stop_event.is_set():
+                time.sleep(0.5)
         except KeyboardInterrupt:
+            logger.logMessage("[ThreadManager] KeyboardInterrupt received → stopping all")
             self.stop_all()
+
+

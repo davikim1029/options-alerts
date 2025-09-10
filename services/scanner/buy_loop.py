@@ -1,20 +1,38 @@
-# services/scanner/buy_loop.py
+#buy_loop.py
+from datetime import datetime, time as dt_time
 from services.logging.logger_singleton import logger
-from services.scanner.buy_scanner import run_buy_scan  # your main buy logic
+from services.scanner.buy_scanner import run_buy_scan
+from services.scanner.scanner_utils import wait_interruptible
+
+# Default values for initial load; will be overridden by kwargs if present
+START_TIME = dt_time(0,0)
+END_TIME = dt_time(23,59)
+COOLDOWN_SECONDS = 300  # 5 minutes
 
 def buy_loop(stop_event, **kwargs):
-    """
-    Hot-reload-aware buy loop.
-    - stop_event: threading.Event used to gracefully stop the loop
-    - kwargs: contains consumer, caches, debug, etc.
-    """
     consumer = kwargs.get("consumer")
     caches = kwargs.get("caches")
     debug = kwargs.get("debug", False)
-    logger.logMessage("[Buy Scanner] Starting run_buy_scan")
 
-    try:
-        # Your main buy scanning logic goes here
-        run_buy_scan(stop_event=stop_event, consumer=consumer, caches=caches, debug=debug)
-    except Exception as e:
-        logger.logMessage(f"[Buy Scanner Error] {e}")
+    logger.logMessage("[Buy Scanner] Module loaded/reloaded")
+
+    while not stop_event.is_set():
+        # Read dynamic values from kwargs
+        start_time = kwargs.get("start_time") or START_TIME
+        end_time   = kwargs.get("end_time")   or END_TIME
+        cooldown   = kwargs.get("cooldown_seconds") or COOLDOWN_SECONDS
+        force_first_run = kwargs.get("force_first_run") or False
+
+        now = datetime.now().time()
+        if start_time <= now <= end_time or force_first_run:
+            try:
+                run_buy_scan(stop_event=stop_event, consumer=consumer,seconds_to_wait=cooldown, caches=caches, debug=debug)
+            except Exception as e:
+                logger.logMessage(f"[Buy Scanner Error] {e}")
+
+            # Reset force_first_run after first execution
+            kwargs["force_first_run"] = False
+
+            wait_interruptible(stop_event, cooldown)
+        else:
+            wait_interruptible(stop_event, 30)

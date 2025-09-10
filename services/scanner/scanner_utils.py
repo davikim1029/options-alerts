@@ -1,13 +1,20 @@
 # scanner_utils.py
 
 import yfinance as yf
-import time
+import time as pyTime
 import os
 import json
 from models.option import OptionContract
 from models.tickers import fetch_us_tickers_from_finnhub
 from services.core.cache_manager import TickerCache
 from datetime import datetime, timedelta, time
+
+
+def wait_interruptible(stop_event, seconds):
+    """Sleep in small chunks so stop_event can interrupt immediately."""
+    end_time = pyTime.time() + seconds
+    while pyTime.time() < end_time and not stop_event.is_set():
+        pyTime.sleep(0.5)
 
 
 

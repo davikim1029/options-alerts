@@ -5,8 +5,8 @@ from services.scanner.buy_scanner import run_buy_scan
 from services.scanner.scanner_utils import wait_interruptible
 
 # Default values for initial load; will be overridden by kwargs if present
-START_TIME = dt_time(0,0)
-END_TIME = dt_time(23,59)
+START_TIME = dt_time(8,0)
+END_TIME = dt_time(19,59)
 COOLDOWN_SECONDS = 300  # 5 minutes
 
 def buy_loop(stop_event, **kwargs):

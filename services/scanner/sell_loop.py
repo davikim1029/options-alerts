@@ -5,7 +5,7 @@ from services.scanner.scanner_utils import wait_interruptible
 
 # Default values
 DEFAULT_START_TIME = dt_time(9,0)
-DEFAULT_END_TIME = dt_time(17,0)
+DEFAULT_END_TIME = dt_time(23,0)
 DEFAULT_COOLDOWN_SECONDS = 3600
 
 def sell_loop(stop_event, **kwargs):
@@ -34,4 +34,30 @@ def sell_loop(stop_event, **kwargs):
 
             wait_interruptible(stop_event, cooldown)
         else:
-            wait_interruptible(stop_event, 30)
+            now_dt = datetime.now()
+            today_start = datetime.combine(now_dt.date(), start_time)
+
+            if now_dt.time() < start_time:
+                # Next start is today
+                next_start = today_start
+            else:
+                # Next start is tomorrow
+                next_start = today_start + timedelta(days=1)
+
+            seconds_until_start = (next_start - now_dt).total_seconds()
+            wait_time = max(0.1, int(seconds_until_start))  # safe fallback
+
+            # Format nicely for logging
+            hours, remainder = divmod(wait_time, 3600)
+            minutes, seconds = divmod(remainder, 60)
+
+            if hours > 0:
+                wait_str = f"{hours}h {minutes}m"
+            elif minutes > 0:
+                wait_str = f"{minutes}m {seconds}s"
+            else:
+                wait_str = f"{seconds}s"
+
+            logger.logMessage(f"[Sell Loop] Outside of time schedule, waiting {wait_str} until next start")
+
+            wait_interruptible(stop_event, wait_time)

@@ -269,3 +269,16 @@ class ThreadManager:
             self._manager_stop_event.set()
             logger.logMessage("[ThreadManager] KeyboardInterrupt received → stopping all")
             self.stop_all()
+            
+    # --------------------------
+    # Reset 
+    # --------------------------
+    def reset_for_new_scan(self):
+        self._manager_stop_event.clear()
+        self._threads.clear()
+        self._watch_dir = None
+        self._file_timestamps.clear()
+        self._watcher_thread = None
+        self._reload_queue.clear()
+        self._initial_scan_done = False
+        logger.logMessage("[ThreadManager] Reset Complete")

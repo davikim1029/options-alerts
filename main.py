@@ -97,8 +97,10 @@ def main():
         
         # --- Mode Handling ---
         if mode == "scan":
+            tm = ThreadManager.instance()
+            tm.reset_for_new_scan()
             start_scanner(debug=debug)
-            ThreadManager.instance().wait_for_shutdown()
+            tm.wait_for_shutdown()
             
         elif mode == "refresh-token":
             force_generate_new_token()

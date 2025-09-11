@@ -6,7 +6,7 @@ from services.scanner.scanner_utils import wait_interruptible
 
 # Default values for initial load; will be overridden by kwargs if present
 START_TIME = dt_time(8,30)
-END_TIME = dt_time(19,40)
+END_TIME = dt_time(22,40)
 COOLDOWN_SECONDS = 300  # 5 minutes
 
 def buy_loop(stop_event, **kwargs):
@@ -35,5 +35,5 @@ def buy_loop(stop_event, **kwargs):
 
             wait_interruptible(stop_event, cooldown)
         else:
-            logger.logMessage("Outside of time schedule, waiting")
+            logger.logMessage("[Buy Loop] Outside of time schedule, waiting")
             wait_interruptible(stop_event, 30)

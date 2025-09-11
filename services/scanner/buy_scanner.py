@@ -167,11 +167,21 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
                     last_ticker_cache.add("lastSeen", ticker)
 
     # ----------------------- Cached metadata -----------------------
-    meta = ticker_metadata_cache.get(ticker, {})
+    meta = ticker_metadata_cache.get(ticker)
+    if meta == None:
+        meta = {}
     min_strike_cached = meta.get("min_strike")
     max_strike_cached = meta.get("max_strike")
-    expirations_cached = set(meta.get("expirations", []))
-    seen_options = set(meta.get("seen_options", []))
+    
+    exp = meta.get("expirations")
+    if exp == None:
+        exp = []
+    expirations_cached = set(exp)
+    
+    meta.get("seen_options")
+    if exp == None:
+        exp = []
+    seen_options = set(exp)
 
     try:
         options, hasOptions = safe_get_option_chain(config["consumer"], ticker)
@@ -247,7 +257,7 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
             eval_result[("SecondaryStrategy", "N/A", "Result")] = False
             eval_result[("SecondaryStrategy", "N/A", "Message")] = "Skipped due to primary failure"
 
-        if eval_cache:
+        if eval_cache is not None:
             eval_cache.add(ticker, eval_result)
         processed_osi_keys.add(osi_key)
 
@@ -293,7 +303,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debu
     global remaining_tickers
     remaining_tickers = total_tickers - (start_index+1)
 
-    logger.logMessage(f"[Buy Scanner] Processing tickers {start_index} of {len(ticker_keys)}")
+    logger.logMessage(f"[Buy Scanner] {total_tickers - start_index} tickers to process.")
 
     try:
         context = {"exposure": consumer.get_open_exposure(), "consumer": consumer}

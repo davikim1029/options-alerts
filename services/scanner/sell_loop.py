@@ -2,18 +2,23 @@ from datetime import datetime, time as dt_time
 from services.logging.logger_singleton import logger
 from services.scanner.sell_scanner import run_sell_scan
 from services.scanner.scanner_utils import wait_interruptible
+from services.alerts import send_alert
+from services.token_status import TokenStatus
+from services.etrade_consumer import TokenExpiredError
 
 # Default values
-DEFAULT_START_TIME = dt_time(9,0)
-DEFAULT_END_TIME = dt_time(23,0)
+DEFAULT_START_TIME = dt_time(8,30)
+DEFAULT_END_TIME = dt_time(16,30)
 DEFAULT_COOLDOWN_SECONDS = 3600
+
+token_status = TokenStatus()
 
 def sell_loop(stop_event, **kwargs):
     consumer = kwargs.get("consumer")
     caches = kwargs.get("caches")
     debug = kwargs.get("debug", False)
 
-    logger.logMessage("[Sell Scanner] Module loaded/reloaded")
+    logger.logMessage("[Sell Loop] Module loaded/reloaded")
 
     while not stop_event.is_set():
         # Read dynamic values from kwargs
@@ -26,8 +31,14 @@ def sell_loop(stop_event, **kwargs):
         if start_time <= now <= end_time or force_first_run:
             try:
                 run_sell_scan(stop_event=stop_event, consumer=consumer, caches=caches,seconds_to_wait=cooldown, debug=debug)
+             except TokenExpiredError:
+                logger.logMessage("[Sell Loop] Token expired, pausing scanner.")
+                send_alert("E*TRADE token expired. Please re-authenticate.")
+                token_status.wait_until_valid(check_interval=30)
+                consumer.load_tokens(generate_new_token=False)
+                logger.logMessage("[Sell Loop] Token restored, resuming scan.")
             except Exception as e:
-                logger.logMessage(f"[Sell Scanner Error] {e}")
+                logger.logMessage(f"[Sell Loop Error] {e}")
 
             # Reset force_first_run after first execution
             kwargs["force_first_run"] = False

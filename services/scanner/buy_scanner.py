@@ -294,7 +294,17 @@ def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debu
 
     logger.logMessage(f"[Buy Scanner] Processing tickers {start_index} of {len(ticker_keys)}")
 
-    context = {"exposure": consumer.get_open_exposure(), "consumer": consumer}
+    try:
+        context = {"exposure": consumer.get_open_exposure(), "consumer": consumer}
+    except TokenExpiredError:
+        logger.logMessage("[Buy Scanner] Token expired gathering exposure, pausing scanner.")
+        send_alert("E*TRADE token expired. Please re-authenticate.")
+        token_status.wait_until_valid(check_interval=30)
+        consumer.load_tokens(generate_new_token=False)
+        logger.logMessage("[Buy Scanner] Token restored, resuming scan.")
+    except Exception:
+        raise
+    
     scanner_config = getattr(caches, "scanner_config", {}) or {}
     config = {
         "min_volume": scanner_config.get("min_volume", 50),

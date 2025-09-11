@@ -40,6 +40,7 @@ def _get_process_ticker():
 # ------------------------- Global counters -------------------------
 counter_lock = threading.Lock()
 total_tickers = 0
+remaining_tickers = 0
 processed_counter = 0
 
 # Global lock for safe ApiWorker access
@@ -68,7 +69,7 @@ class _DictCacheFallback:
 executor = None
 
 def _reset_globals():
-    global counter_lock, total_tickers, processed_counter, api_worker_lock
+    global counter_lock, total_tickers,remaining_tickers, processed_counter, api_worker_lock
     global fallback_cache, executor
 
     # Shutdown old executor if it exists
@@ -82,8 +83,8 @@ def _reset_globals():
     counter_lock = threading.Lock()
     api_worker_lock = threading.Lock()
     total_tickers = 0
+    remaining_tickers = 0
     processed_counter = 0
-    _printed_revision = False
 
     # Reset fallback cache
     fallback_cache = _DictCacheFallback()
@@ -132,17 +133,9 @@ def _should_keep_option(opt, underlying_guess, config):
 
 
 # ------------------------- Per-ticker worker -------------------------
-_printed_revision = False
-
 def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,stop_event = None, debug=False):
     if stop_event and stop_event.is_set():
         return  # immediately exit if stop was requested
-    
-    global processed_counter, _printed_revision
-    with counter_lock:
-        if not _printed_revision:
-            _printed_revision = True
-
 
     ignore_cache = getattr(caches, "ignore", None)
     bought_cache = getattr(caches, "bought", None)
@@ -162,8 +155,8 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
     global processed_counter
     with counter_lock:
         processed_counter += 1
-        if processed_counter % 50 == 0 or processed_counter == total_tickers:
-            logger.logMessage(f"[Buy Scanner] Completed {processed_counter}/{total_tickers} tickers")
+        if processed_counter % 50 == 0 or processed_counter == remaining_tickers:
+            logger.logMessage(f"[Buy Scanner] Completed {processed_counter}/{remaining_tickers} tickers")
             
         if processed_counter % 5 == 0 and last_ticker_cache:
                     last_ticker_cache.add("lastSeen", ticker)
@@ -291,6 +284,9 @@ def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debu
         start_index = ticker_keys.index(last_seen) + 1
     if start_index >= len(ticker_keys)-1:
         start_index = 0
+
+    global remaining_tickers
+    remaining_tickers = total_tickers - (start_index+1)
 
     logger.logMessage(f"[Buy Scanner] Processing tickers {start_index} of {len(ticker_keys)}")
 

@@ -31,7 +31,8 @@ def sell_loop(stop_event, **kwargs):
         if start_time <= now <= end_time or force_first_run:
             try:
                 run_sell_scan(stop_event=stop_event, consumer=consumer, caches=caches,seconds_to_wait=cooldown, debug=debug)
-             except TokenExpiredError:
+                
+            except TokenExpiredError:
                 logger.logMessage("[Sell Loop] Token expired, pausing scanner.")
                 send_alert("E*TRADE token expired. Please re-authenticate.")
                 token_status.wait_until_valid(check_interval=30)

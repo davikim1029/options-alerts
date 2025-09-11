@@ -21,7 +21,7 @@ def buy_loop(stop_event, **kwargs):
     caches = kwargs.get("caches")
     debug = kwargs.get("debug", False)
     
-    global _running:
+    global _running
     if _running:
         logger.logMessage("[Buy Loop] buy_loop already running, skipping")  
         

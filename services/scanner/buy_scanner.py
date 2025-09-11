@@ -42,6 +42,7 @@ counter_lock = threading.Lock()
 total_tickers = 0
 remaining_tickers = 0
 processed_counter = 0
+total_iterated = 0
 
 # Global lock for safe ApiWorker access
 api_worker_lock = threading.Lock()
@@ -69,7 +70,7 @@ class _DictCacheFallback:
 executor = None
 
 def _reset_globals():
-    global counter_lock, total_tickers,remaining_tickers, processed_counter, api_worker_lock
+    global counter_lock, total_tickers,remaining_tickers, processed_counter, api_worker_lock,total_iterated
     global fallback_cache, executor
 
     # Shutdown old executor if it exists
@@ -85,6 +86,7 @@ def _reset_globals():
     total_tickers = 0
     remaining_tickers = 0
     processed_counter = 0
+    total_iterated = 0
 
     # Reset fallback cache
     fallback_cache = _DictCacheFallback()
@@ -136,6 +138,9 @@ def _should_keep_option(opt, underlying_guess, config):
 def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,stop_event = None, debug=False):
     if stop_event and stop_event.is_set():
         return  # immediately exit if stop was requested
+    
+    global total_iterated
+    total_iterated += 1
 
     ignore_cache = getattr(caches, "ignore", None)
     bought_cache = getattr(caches, "bought", None)
@@ -156,7 +161,7 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
     with counter_lock:
         processed_counter += 1
         if processed_counter % 50 == 0 or processed_counter == remaining_tickers:
-            logger.logMessage(f"[Buy Scanner] Completed {processed_counter}/{remaining_tickers} tickers")
+            logger.logMessage(f"[Buy Scanner] Completed {processed_counter}/{remaining_tickers-total_iterated} tickers")
             
         if processed_counter % 5 == 0 and last_ticker_cache:
                     last_ticker_cache.add("lastSeen", ticker)

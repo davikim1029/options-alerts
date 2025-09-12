@@ -229,32 +229,39 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
         eval_result = {}
         osi_key = getattr(opt, "osiKey", None)
 
-        for primary in buy_strategies["Primary"]:
-            success, error = primary.should_buy(opt, context)
-            key = ("PrimaryStrategy", primary.name)
-            eval_result[(key[0], key[1], "Result")] = success
-            eval_result[(key[0], key[1], "Message")] = error if not success else "Passed"
-            if not success and debug:
-                logger.logMessage(f"[Buy Scanner] {getattr(opt, 'displaySymbol', '?')} fails {primary.name}: {error}")
-            should_buy = should_buy and success
+        try:
+            for primary in buy_strategies["Primary"]:
+                success, error = primary.should_buy(opt, context)
+                key = ("PrimaryStrategy", primary.name)
+                eval_result[(key[0], key[1], "Result")] = success
+                eval_result[(key[0], key[1], "Message")] = error if not success else "Passed"
+                if not success and debug:
+                    logger.logMessage(f"[Buy Scanner] {getattr(opt, 'displaySymbol', '?')} fails {primary.name}: {error}")
+                should_buy = should_buy and success
+        except Exception as e:
+            logger.logMessage(f"[Buy Scanner] - Failed to evaluate primary buy strategy(s) for reason: {e}")
 
         if should_buy:
             secondary_failure = ""
-            for secondary in buy_strategies["Secondary"]:
-                success, error = secondary.should_buy(opt, context)
-                key = ("SecondaryStrategy", secondary.name)
-                eval_result[(key[0], key[1], "Result")] = success
-                eval_result[(key[0], key[1], "Message")] = error if not success else "Passed"
-                if not success:
-                    secondary_failure = f" | Secondary Failure: {error}"
-            if secondary_failure:
-                continue
+            try:
+                for secondary in buy_strategies["Secondary"]:
+                    success, error = secondary.should_buy(opt, context)
+                    key = ("SecondaryStrategy", secondary.name)
+                    eval_result[(key[0], key[1], "Result")] = success
+                    eval_result[(key[0], key[1], "Message")] = error if not success else "Passed"
+                    if not success:
+                        secondary_failure = f" | Secondary Failure: {error}"
+            #if secondary_failure:
+            #    continue
+            except Exception as e:
+                logger.logMessage(f"[Buy Scanner] - Failed to evaluate secondary buy strategy(s) for reason: {e}")
 
             try:
-                if getattr(opt, "ask", 99999) * 100 < 50:
+                if getattr(opt, "ask", 99999) * 100 < 120:
                     msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {opt.ask*100}{secondary_failure}"
                     send_alert(msg)
-            except Exception:
+            except Exception as e:
+                logger.logMessage("[Buy Scanner] Error sending notification")
                 pass
         else:
             eval_result[("SecondaryStrategy", "N/A", "Result")] = False

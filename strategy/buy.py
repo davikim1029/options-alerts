@@ -23,23 +23,24 @@ class OptionBuyStrategy(BuyStrategy):
 
             # 3. Expiry ≥ 7 days
             if option.expiryDate:
-                if (option.expiryDate - datetime.now(timezone.utc)).days < 7:
+                now = datetime.now(timezone.utc)
+                if option.expiryDate - now < timedelta(days=7):
                     return False, "Expiration within 7 days"
 
             # 4. Strike within 10% of current price
-            if option.underlyingPrice and abs(option.strikePrice - option.underlyingPrice) / option.underlyingPrice > 0.10:
+            if option.nearPrice and abs(option.strikePrice - option.nearPrice) / option.nearPrice > 0.10:
                 return False, "Strike Price more than 10% of underlying price"
 
             # 5. IV < 80%
-            if option.impliedVolatility > 0.80:
+            if option.OptionGreeks.iv > 0.80:
                 return False, "IV > 80"
 
             # 6. Greeks:
-            if not (0.3 <= option.delta <= 0.6):
+            if not (0.3 <= option.OptionGreeks.delta <= 0.6):
                 return False, "Delta outside of .3 to .6"
-            if option.gamma < 0.02:
+            if option.OptionGreeks.gamma < 0.02:
                 return False, "Gamma < .02"
-            if option.theta < -0.1:  # negative = losing premium fast
+            if option.OptionGreeks.theta < -0.1:  # negative = losing premium fast
                 return False, "Theta < -.1"
 
             # 7. Market trend confirmation (via yfinance)

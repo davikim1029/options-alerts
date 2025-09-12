@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional, Dict
+from datetime import datetime
 
 @dataclass
 class OptionGreeks:
@@ -59,3 +60,5 @@ class OptionContract:
     OptionGreeks: Optional[OptionGreeks] = None
     quick: Optional[Quick] = None
     product: Optional[Product] = None
+    expiryDate: Optional[datetime] = None
+    nearPrice: Optional[float] = None

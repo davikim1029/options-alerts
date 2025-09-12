@@ -400,6 +400,8 @@ class EtradeConsumer:
             results = []
             for optionPair in chain_data.get("OptionPair", []):
                 call = optionPair.get("Call", {})
+                call["expiryDate"] = expiry_date
+                call["nearPrice"] = near_price
                 call_greeks = call.get("OptionGreeks", {})
                 option_greeks = OptionGreeks(**call_greeks)
 
@@ -408,7 +410,10 @@ class EtradeConsumer:
                     securityType=call.get("optionType"),  # or "CALL"/"PUT"
                     callPut="CALL" if call.get("optionType") == "CALL" else "PUT",
                     strikePrice=call.get("strikePrice"),
-                    productId=ProductId(symbol=call.get("symbol"), typeCode=call.get("optionType"))
+                    productId=ProductId(symbol=call.get("symbol"), typeCode=call.get("optionType")),
+                    expiryDay=expiry_date.day,
+                    expiryMonth=expiry_date.month,
+                    expiryYear=expiry_date.year
                 )
 
                 quick = Quick(
@@ -425,7 +430,7 @@ class EtradeConsumer:
                     "symbol", "optionType", "strikePrice", "displaySymbol", "osiKey",
                     "bid", "ask", "bidSize", "askSize", "inTheMoney", "volume",
                     "openInterest", "netChange", "lastPrice", "quoteDetail",
-                    "optionCategory", "timeStamp", "adjustedFlag"
+                    "optionCategory", "timeStamp", "adjustedFlag","expiryDate","nearPrice"
                 ] if k in call}
 
                 option = OptionContract(

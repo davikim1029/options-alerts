@@ -8,7 +8,7 @@ from services.etrade_consumer import TokenExpiredError
 
 # Default values
 DEFAULT_START_TIME = dt_time(8,30)
-DEFAULT_END_TIME = dt_time(16,30)
+DEFAULT_END_TIME = dt_time(17,30)
 DEFAULT_COOLDOWN_SECONDS = 3600
 
 token_status = TokenStatus()

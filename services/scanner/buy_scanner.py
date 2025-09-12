@@ -163,7 +163,7 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
     global processed_counter
     with counter_lock:
         processed_counter += 1
-        if processed_counter % 100 == 0 or processed_counter == remaining_tickers:
+        if processed_counter % 250 == 0 or processed_counter == remaining_tickers:
             logger.logMessage(f"[Buy Scanner] Processed {processed_counter}. {remaining_tickers-total_iterated} tickers remaining")
             
         if processed_counter % 5 == 0 and last_ticker_cache:

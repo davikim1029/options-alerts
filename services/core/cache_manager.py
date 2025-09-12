@@ -5,7 +5,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from threading import RLock
 from services.core.shutdown_handler import ShutdownManager
-from services.logging.logger_singleton import logger
+from services.logging.logger_singleton import getLogger
 
 
 class CacheManager:
@@ -29,6 +29,7 @@ class CacheManager:
         self.ttl_hours = ttl_hours
         self.ttl_minutes = ttl_minutes
         self.autosave_interval = autosave_interval
+        self.logger = getLogger()
         
         # ------------------------
         # New global scanner config
@@ -46,7 +47,7 @@ class CacheManager:
         try:
             ShutdownManager.register(self.name, lambda reason=None: self._save_cache())
         except TypeError:
-            ShutdownManager.init(error_logger=logger.logMessage)
+            ShutdownManager.init(error_logger=self.logger.logMessage)
             ShutdownManager.register(self.name, lambda reason=None: self._save_cache())
         self._load_cache()
 
@@ -72,9 +73,9 @@ class CacheManager:
                     if not self.is_expired(ts):
                         self._cache[key] = {"Value": value, "Timestamp": ts}
         except json.JSONDecodeError:
-            logger.logMessage(f"[{self.name}] Cache file empty or corrupted, starting fresh")
+            self.logger.logMessage(f"[{self.name}] Cache file empty or corrupted, starting fresh")
         except Exception as e:
-            logger.logMessage(f"[{self.name}] Failed to load cache: {e}")
+            self.logger.logMessage(f"[{self.name}] Failed to load cache: {e}")
             
     def _save_cache(self):
         try:
@@ -95,7 +96,7 @@ class CacheManager:
 
             os.replace(tmp.name, self.filepath)
         except Exception as e:
-            logger.logMessage(f"[{self.name}] Failed to save cache: {e}")
+            self.logger.logMessage(f"[{self.name}] Failed to save cache: {e}")
 
 
     def autosave_loop(self, stop_event):

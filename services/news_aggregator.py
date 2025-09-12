@@ -3,7 +3,7 @@ import requests
 import feedparser
 from services.core.cache_manager import RateLimitCache
 from typing import List, Dict, Optional
-from services.logging.logger_singleton import logger
+from services.logging.logger_singleton import getLogger
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
@@ -36,7 +36,7 @@ class NewsClient:
     
 
 class NewsAPIClient(NewsClient):
-    def __init__(self,rate_cache):
+    def __init__(self,rate_cache,logger):
         self.rate_cache = rate_cache
         api_key = os.getenv("NEWSAPI_KEY")
         if not api_key:
@@ -78,7 +78,7 @@ class NewsAPIClient(NewsClient):
 
 
 class NewsDataClient(NewsClient):
-    def __init__(self,rate_cache:RateLimitCache):
+    def __init__(self,rate_cache:RateLimitCache,logger):
         self.rate_cache = rate_cache
         self.api_key = os.getenv("NEWSDATA_KEY")
 
@@ -155,11 +155,11 @@ class GoogleNewsClient(NewsClient):
 # Smart Aggregator
 # --------------------------
 def aggregate_headlines_smart(ticker: str, rate_cache:RateLimitCache = None) -> List[Dict]:
-    
+    logger = getLogger()
     sources_priority = [
-        ("NewsAPI", NewsAPIClient(rate_cache=rate_cache), True),
-        ("NewsData", NewsDataClient(rate_cache=rate_cache), True),
-        ("GoogleNewsRSS", GoogleNewsClient(rate_cache=rate_cache), False),
+        ("NewsAPI", NewsAPIClient(rate_cache=rate_cache,logger=logger), True),
+        ("NewsData", NewsDataClient(rate_cache=rate_cache,logger=logger), True),
+        ("GoogleNewsRSS", GoogleNewsClient(rate_cache=rate_cache,logger=logger), False),
     ]
 
     new_articles = []

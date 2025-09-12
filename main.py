@@ -11,7 +11,7 @@ from services.news_aggregator import aggregate_headlines_smart
 from strategy.sentiment import SectorSentimentStrategy
 from services.scanner.scanner_utils import get_active_tickers
 from encryption.encryptItems import encryptEtradeKeySecret
-from services.logging.logger_singleton import logger
+from services.logging.logger_singleton import getLogger
 from services.core.shutdown_handler import ShutdownManager
 from services.scanner.scanner_entry import start_scanner
 from services.threading.thread_manager import ThreadManager
@@ -67,11 +67,9 @@ def get_mode_from_prompt():
 def main():
     # Ensure directories exist
     os.makedirs("cache", exist_ok=True)
+    logger = getLogger()
     logger.logMessage("Script started.")
     
-    # Initialize shutdown manager
-    ShutdownManager.init(error_logger=logger.logMessage)
-
     load_dotenv()
     parser = argparse.ArgumentParser(description="OptionsAlerts CLI")
     parser.add_argument("--mode", help="Mode to run")
@@ -97,6 +95,8 @@ def main():
         
         # --- Mode Handling ---
         if mode == "scan":
+            # Initialize shutdown manager
+            ShutdownManager.init(error_logger=logger.logMessage)
             tm = ThreadManager.instance()
             tm.reset_for_new_scan()
             start_scanner(debug=debug)

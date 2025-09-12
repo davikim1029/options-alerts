@@ -11,7 +11,7 @@ from models.generated.Account import Account, PortfolioAccount
 from models.generated.Position import Position
 from models.option import OptionContract,Product,Quick,OptionGreeks,ProductId
 from services.threading.api_worker import ApiWorker,HttpMethod
-from services.logging.logger_singleton import logger
+from services.logging.logger_singleton import getLogger
 from services.token_status import TokenStatus
 
 TOKEN_LIFETIME_DAYS = 90
@@ -27,6 +27,7 @@ class EtradeConsumer:
         self.sandbox = sandbox
         self.apiWorker = apiWorker
         self.token_status = TokenStatus()
+        self.logger = getLogger()
         envType = "nonProd" if sandbox else "prod"
 
         self.consumer_key, self.consumer_secret = self.load_encrypted_etrade_keysecret(sandbox)
@@ -37,7 +38,7 @@ class EtradeConsumer:
             raise Exception("Missing E*TRADE consumer key")
 
         if not os.path.exists(self.token_file):
-            logger.logMessage("No token file found. Starting OAuth...")
+            self.logger.logMessage("No token file found. Starting OAuth...")
             if not self.generate_token():
                 raise Exception("Failed to generate access token.")
         else:
@@ -59,22 +60,22 @@ class EtradeConsumer:
                 elif response.response is not None:
                     return response.response.text  # fallback to raw string
                 else:
-                    logger.logMessage("Warning: no data or raw response available")
+                    self.logger.logMessage("Warning: no data or raw response available")
                     return None
             else:
                 try:
                     # --- handle timeout / worker errors first ---
                     if response.error and "Timeout" in response.error:
-                        logger.logMessage(f"API call timed out: {response.error}")
+                        self.logger.logMessage(f"API call timed out: {response.error}")
                         return None
 
                     if response.response is None:
-                        logger.logMessage(f"API call failed with no response object: {response.error}")
+                        self.logger.logMessage(f"API call failed with no response object: {response.error}")
                         return None
                     
                     # --- detect HTTP 401 Unauthorized ---
                     if response.status_code == 401:
-                        logger.logMessage("[Auth] Token expired or unauthorized, need to regenerate")
+                        self.logger.logMessage("[Auth] Token expired or unauthorized, need to regenerate")
                         self.token_status.set_status(False)
                         raise TokenExpiredError("OAuth token expired")
                     
@@ -83,22 +84,22 @@ class EtradeConsumer:
                     
                     if error_code == 10033:
                         symbol = params["symbol"]
-                        logger.logMessage(f"The symbol {symbol} is invalid for api: {url}")
+                        self.logger.logMessage(f"The symbol {symbol} is invalid for api: {url}")
                     
                     #10031 means no options available for month
                     #10032 means no options available
                     elif error_code not in (10031, 10032):
-                        logger.logMessage(f"Error: {error}")
+                        self.logger.logMessage(f"Error: {error}")
                         
                 except TokenExpiredError as e:
                     raise
                 except Exception as e:
-                    logger.logMessage(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")
+                    self.logger.logMessage(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")
         else:
             try:
                 return self.session.get(url, headers=headers, params=params)
             except Exception as e:
-                logger.logMessage(f"[GET Exception] {e} for URL: {url}")
+                self.logger.logMessage(f"[GET Exception] {e} for URL: {url}")
                 return None
 
 
@@ -127,13 +128,13 @@ class EtradeConsumer:
             if response.get("ok"):
                 return response.get("data")
             else:
-                logger.logMessage(f"Error {response.get('status_code')}: {response.get('error')}")
+                self.logger.logMessage(f"Error {response.get('status_code')}: {response.get('error')}")
                 return None
         else:
             try:
                 return self.session.put(url, headers=headers, params=params, json=data)
             except Exception as e:
-                logger.logMessage(f"[PUT Exception] {e} for URL: {url}")
+                self.logger.logMessage(f"[PUT Exception] {e} for URL: {url}")
                 return None
 
 
@@ -159,14 +160,14 @@ class EtradeConsumer:
             if response.get("ok"):
                 return response.get("data")
             else:
-                logger.logMessage(f"Error {response.get('status_code')}: {response.get('error')}")
+                self.logger.logMessage(f"Error {response.get('status_code')}: {response.get('error')}")
                 return None
         else:
             try:
                 resp = self.session.post(url, headers=headers, params=params, json=data)
                 return resp
             except Exception as e:
-                logger.logMessage(f"[POST Exception] {e} for URL: {url}")
+                self.logger.logMessage(f"[POST Exception] {e} for URL: {url}")
                 return None
 
 
@@ -194,20 +195,20 @@ class EtradeConsumer:
         # Check token age
         token_age_days = (datetime.now(timezone.utc) - datetime.fromtimestamp(created_at, tz=timezone.utc)).days
         if (not self.oauth_token or token_age_days >= TOKEN_LIFETIME_DAYS) and generate_new_token:
-            logger.logMessage(f"Token missing or expired (age={token_age_days}d). Generating new token...")
+            self.logger.logMessage(f"Token missing or expired (age={token_age_days}d). Generating new token...")
             if not self.generate_token():
                 raise Exception("Failed to generate new OAuth token.")
         else:
             # Extra check: make sure the token actually works with the API
             if not self._check_session_valid():
                 if generate_new_token:
-                    logger.logMessage("Token invalid according to API. Generating new token...")
+                    self.logger.logMessage("Token invalid according to API. Generating new token...")
                     if not self.generate_token():
                         raise Exception("Failed to generate new OAuth token.")
                 else:
-                    logger.logMessage("Existing token invalid but not set up to generate new token")
+                    self.logger.logMessage("Existing token invalid but not set up to generate new token")
             else:
-                logger.logMessage("Loaded token valid")
+                self.logger.logMessage("Loaded token valid")
 
 
 
@@ -223,7 +224,7 @@ class EtradeConsumer:
             return self.generate_token()
         except Exception as e:
             self.token_status.set_status(False)
-            logger.logMessage(f"[Token Validation] Exception: {e}")
+            self.logger.logMessage(f"[Token Validation] Exception: {e}")
             return False
 
     def _check_session_valid(self):
@@ -233,7 +234,7 @@ class EtradeConsumer:
             r = self.get(url)
             return r and getattr(r, "status_code", 200) == 200
         except Exception as e:
-            logger.logMessage(f"[Token Validation] Session check failed: {e}")
+            self.logger.logMessage(f"[Token Validation] Session check failed: {e}")
             return False
 
     def generate_token(self):
@@ -255,14 +256,14 @@ class EtradeConsumer:
                 resource_owner_key = fetch_response.get("oauth_token")
                 resource_owner_secret = fetch_response.get("oauth_token_secret")
             except Exception as e:
-                logger.logMessage(f"[Auth] Failed to obtain request token: {e}")
+                self.logger.logMessage(f"[Auth] Failed to obtain request token: {e}")
                 return
 
             # Step 2: Provide user the authorization URL            
             authorize_base = "https://us.etrade.com/e/t/etws/authorize"
             params = {"key": self.consumer_key, "token": resource_owner_key}
             authorization_url = f"{authorize_base}?{urlencode(params)}"
-            logger.logMessage(f"[Auth] Please go to this URL and authorize: {authorization_url}")
+            self.logger.logMessage(f"[Auth] Please go to this URL and authorize: {authorization_url}")
 
             # Step 3: Prompt for PIN until success, restart, or exit
             while True:
@@ -272,10 +273,10 @@ class EtradeConsumer:
                 ).strip()
 
                 if verifier.lower() == "exit":
-                    logger.logMessage("[Auth] User aborted token generation")
+                    self.logger.logMessage("[Auth] User aborted token generation")
                     return False
                 if verifier.lower() == "restart":
-                    logger.logMessage("[Auth] Restarting OAuth flow with new request token")
+                    self.logger.logMessage("[Auth] Restarting OAuth flow with new request token")
                     break  # break inner loop, restart outer flow
 
                 access_token_url = f"{self.base_url}/oauth/access_token"
@@ -302,13 +303,13 @@ class EtradeConsumer:
                     )                    
                     self.save_tokens()
 
-                    logger.logMessage("[Auth] Access token successfully obtained and saved")
+                    self.logger.logMessage("[Auth] Access token successfully obtained and saved")
                     self.token_status.set_status(True)
                     return True
                 except Exception as e:
                     self.token_status.set_status(False)
-                    logger.logMessage(f"[Auth] Invalid PIN or error during exchange: {e}")
-                    logger.logMessage("[Auth] Try again, type 'restart' for new URL, or 'exit'.")
+                    self.logger.logMessage(f"[Auth] Invalid PIN or error during exchange: {e}")
+                    self.logger.logMessage("[Auth] Try again, type 'restart' for new URL, or 'exit'.")
                     continue  # loop again for new PIN
             
             #We shouldn't hit this so trigger as failure
@@ -348,7 +349,7 @@ class EtradeConsumer:
             accts = r.json().get("AccountListResponse", {}).get("Accounts", {}).get("Account", [])
             return [Account(**acct) for acct in accts]
         except Exception as e:
-            logger.logMessage(f"[ERROR] Failed to parse account ID: {e}")
+            self.logger.logMessage(f"[ERROR] Failed to parse account ID: {e}")
             return []
 
     def get_positions(self):
@@ -437,7 +438,7 @@ class EtradeConsumer:
                 results.append(option)
             return results,True
         except Exception as e:
-            logger.logMessage(f"[ERROR] Failed to parse option chain for {symbol}: {e}")
+            self.logger.logMessage(f"[ERROR] Failed to parse option chain for {symbol}: {e}")
             return [],False
 
     # ------------------- QUOTES -------------------
@@ -457,7 +458,7 @@ class EtradeConsumer:
             )
             return Position(Product=product, Quick=quick)
         except Exception as e:
-            logger.logMessage(f"[ERROR] Failed to parse quote for {symbol}: {e}")
+            self.logger.logMessage(f"[ERROR] Failed to parse quote for {symbol}: {e}")
             return None
 
 

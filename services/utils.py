@@ -4,7 +4,6 @@ import os
 import time
 from dataclasses import is_dataclass, fields, is_dataclass
 from typing import get_type_hints, List, Union, TypeVar, Dict, Any, Type
-from services.logging.logger_singleton import logger
 
 
 def load_json_cache(file_path, max_age_seconds=86400):

@@ -1,7 +1,7 @@
 # services/scanner/sell_scanner.py
 import time
 from typing import Optional, List
-from services.logging.logger_singleton import logger
+from services.logging.logger_singleton import getLogger
 from services.scanner.scanner_utils import get_next_run_date
 from services.alerts import send_alert
 from models.generated.Position import Position
@@ -27,6 +27,8 @@ def run_sell_scan(
     rate_cache = caches.rate
     eval_cache = caches.eval
     last_ticker_cache = caches.last_seen
+    
+    logger = getLogger()
 
     sell_strategies = {
         "Primary": [OptionSellStrategy()],

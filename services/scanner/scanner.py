@@ -6,7 +6,7 @@ from pathlib import Path
 import time as pyTime
 from datetime import datetime
 
-from services.logging.logger_singleton import logger
+from services.logging.logger_singleton import getLogger
 from services.etrade_consumer import EtradeConsumer
 from services.core.shutdown_handler import ShutdownManager
 from services.core.cache_manager import Caches
@@ -29,6 +29,7 @@ user_input_queue = queue.Queue()
 # Input listener
 # ---------------------------
 def input_listener(stop_event):
+    logger = getLogger()
     while not stop_event.is_set():
         try:
             if os.name == "nt":
@@ -56,6 +57,7 @@ def input_listener(stop_event):
 # Input processor
 # ---------------------------
 def input_processor(stop_event):
+    logger = getLogger()
     while not stop_event.is_set():
         try:
             cmd = user_input_queue.get(timeout=0.5)
@@ -91,6 +93,7 @@ def input_processor(stop_event):
 # Cache autosave wrapper
 # ---------------------------
 def _autosave_loop(stop_event, cache):
+    logger = getLogger()
     try:
         cache.autosave_loop(stop_event)
     except Exception as e:
@@ -101,6 +104,7 @@ def _autosave_loop(stop_event, cache):
 # Main scanner runner
 # ---------------------------
 def run_scan(stop_event, mode=None, consumer=None, debug=False):
+    logger = getLogger()
     logger.logMessage("[Scanner] Initializing...")
 
     if consumer is None:

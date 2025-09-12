@@ -1,9 +1,10 @@
 from services.threading.thread_manager import ThreadManager
 from services.scanner.scanner import run_scan
 from pathlib import Path
-from services.logging.logger_singleton import logger
+from services.logging.logger_singleton import getLogger
 
 def start_scanner(debug=False):
+    logger = getLogger()
     try:
         manager = ThreadManager.instance()
 

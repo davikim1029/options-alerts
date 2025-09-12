@@ -5,7 +5,7 @@ import sys
 import importlib
 from pathlib import Path
 from datetime import datetime
-from services.logging.logger_singleton import logger
+from services.logging.logger_singleton import getLogger
 from services.helpers import snapshot_module
 
 class ThreadWrapper(threading.Thread):
@@ -27,6 +27,7 @@ class ThreadWrapper(threading.Thread):
         self._reload_event = threading.Event()
         self._thread_lock = threading.Lock()
         self._token_pause_event = token_pause_event  # Event to sync on token refresh
+        self.logger = getLogger()
 
     def run(self):
         while not self._stop_event.is_set():
@@ -67,10 +68,10 @@ class ThreadWrapper(threading.Thread):
                 # Handle reload
                 if self._reload_event.is_set():
                     self._reload_event.clear()
-                    logger.logMessage(f"[{self.name}] Reloading triggered")
+                    self.logger.logMessage(f"[{self.name}] Reloading triggered")
 
             except Exception as e:
-                logger.logMessage(f"[{self.name}] crashed: {e}")
+                self.logger.logMessage(f"[{self.name}] crashed: {e}")
                 break
 
     def stop(self):
@@ -99,6 +100,7 @@ class ThreadManager:
         self._reload_queue = set()
         self._initial_scan_done = False
         self._token_pause_event = token_pause_event
+        self.logger = getLogger()
 
     # ---------------------------
     # Thread registration
@@ -123,7 +125,7 @@ class ThreadManager:
         )
         self._threads[name] = wrapper
         wrapper.start()
-        logger.logMessage(f"[ThreadManager] Started thread {name}")
+        self.logger.logMessage(f"[ThreadManager] Started thread {name}")
 
     # ---------------------------
     # Stop threads
@@ -136,7 +138,7 @@ class ThreadManager:
             t.join()
         if self._watcher_thread and self._watcher_thread.is_alive():
             self._watcher_thread.join()
-        logger.logMessage("[ThreadManager] All threads stopped")
+        self.logger.logMessage("[ThreadManager] All threads stopped")
 
     # ---------------------------
     # File watcher (hot-reload)
@@ -147,7 +149,7 @@ class ThreadManager:
         self._watcher_thread = threading.Thread(target=self._watch_loop, daemon=True)
         self._watcher_thread.start()
         self._initial_scan_done = True
-        logger.logMessage(f"[ThreadManager] Started file watcher on {self._watch_dir}")
+        self.logger.logMessage(f"[ThreadManager] Started file watcher on {self._watch_dir}")
 
     def _scan_files(self):
         file_timestamps = {}
@@ -202,14 +204,14 @@ class ThreadManager:
     # Handle file changes
     # ---------------------------
     def _handle_file_change(self, filepath: Path):
-        logger.logMessage(f"[Watcher] Detected change in {filepath}")
+        self.logger.logMessage(f"[Watcher] Detected change in {filepath}")
         filepath = filepath.resolve()
 
         for name, wrapper in list(self._threads.items()):
             if filepath not in [Path(f).resolve() for f in wrapper._reload_files]:
                 continue
 
-            logger.logMessage(f"[Watcher] Reloading thread {name} due to change in {filepath}")
+            self.logger.logMessage(f"[Watcher] Reloading thread {name} due to change in {filepath}")
 
             # Stop the old thread
             wrapper.stop()
@@ -256,7 +258,7 @@ class ThreadManager:
             )
             self._threads[name] = new_wrapper
             new_wrapper.start()
-            logger.logMessage(f"[Watcher] Reload complete for {name} → kwargs updated: {list(new_kwargs.keys())}")
+            self.logger.logMessage(f"[Watcher] Reload complete for {name} → kwargs updated: {list(new_kwargs.keys())}")
 
     # ---------------------------
     # Wait for shutdown
@@ -267,7 +269,7 @@ class ThreadManager:
                 time.sleep(0.5)
         except KeyboardInterrupt:
             self._manager_stop_event.set()
-            logger.logMessage("[ThreadManager] KeyboardInterrupt received → stopping all")
+            self.logger.logMessage("[ThreadManager] KeyboardInterrupt received → stopping all")
             self.stop_all()
             
     # --------------------------
@@ -281,4 +283,4 @@ class ThreadManager:
         self._watcher_thread = None
         self._reload_queue.clear()
         self._initial_scan_done = False
-        logger.logMessage("[ThreadManager] Reset Complete")
+        self.logger.logMessage("[ThreadManager] Reset Complete")

@@ -3,13 +3,14 @@ import json
 import os
 import time
 from threading import Lock
-from services.logging.logger_singleton import logger  # assuming you already use logger
+from services.logging.logger_singleton import getLogger  # assuming you already use logger
 
 class TokenStatus:
     def __init__(self, filepath="encryption/token_status.json"):
         self.filepath = filepath
         self.lock = Lock()
         self._ensure_file_exists()
+        self.logger = getLogger()
 
     def _ensure_file_exists(self):
         """Create the file if missing or corrupted."""
@@ -48,6 +49,6 @@ class TokenStatus:
         Useful for scanners that should pause until tokens are refreshed.
         """
         while not self.is_valid():
-            logger.logMessage("[TokenStatus] Token invalid, waiting...")
+            self.logger.logMessage("[TokenStatus] Token invalid, waiting...")
             time.sleep(check_interval)
-        logger.logMessage("[TokenStatus] Token valid, resuming work")
+        self.logger.logMessage("[TokenStatus] Token valid, resuming work")

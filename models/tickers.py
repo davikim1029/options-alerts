@@ -3,7 +3,7 @@ import requests
 import json
 from datetime import datetime
 from services.core.cache_manager import TickerCache
-from services.logging.logger_singleton import logger
+from services.logging.logger_singleton import getLogger
 
 
 def fetch_us_tickers_from_finnhub(ticker_cache:TickerCache):
@@ -12,7 +12,7 @@ def fetch_us_tickers_from_finnhub(ticker_cache:TickerCache):
         raise Exception("FINNHUB_API_KEY not set in environment")
 
     # Use cached file if available and not forced
-
+    logger = getLogger()
     logger.logMessage("[Tickers] Fetching from Finnhub...")
     url = f"https://finnhub.io/api/v1/stock/symbol?exchange=US&token={api_key}"
     r = requests.get(url)

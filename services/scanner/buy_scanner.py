@@ -3,7 +3,7 @@ import time
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
-from services.logging.logger_singleton import logger
+from services.logging.logger_singleton import getLogger
 from services.scanner.scanner_utils import get_active_tickers, get_next_run_date
 from services.alerts import send_alert
 from strategy.buy import OptionBuyStrategy
@@ -24,6 +24,7 @@ def start_executor(max_workers: int):
 
 
 def force_shutdown_executor():
+    logger = getLogger()
     global executor
     with _exectuor_lock:
         if executor:
@@ -97,6 +98,7 @@ _reset_globals()  # call on module load/reload
 
 token_status = TokenStatus()
 def safe_get_option_chain(consumer, ticker):
+    logger = getLogger()
     """Wrap ApiWorker calls to avoid timeouts from concurrent threads."""
     try:
         with api_worker_lock:
@@ -136,6 +138,7 @@ def _should_keep_option(opt, underlying_guess, config):
 
 # ------------------------- Per-ticker worker -------------------------
 def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,stop_event = None, debug=False):
+    logger = getLogger()
     if stop_event and stop_event.is_set():
         return  # immediately exit if stop was requested
     
@@ -172,16 +175,15 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
         meta = {}
     min_strike_cached = meta.get("min_strike")
     max_strike_cached = meta.get("max_strike")
+    expTmp = meta.get("expirations")
+    if expTmp == None:
+        expTmp = []
+    expirations_cached = set(expTmp)
     
-    exp = meta.get("expirations")
-    if exp == None:
-        exp = []
-    expirations_cached = set(exp)
-    
-    meta.get("seen_options")
-    if exp == None:
-        exp = []
-    seen_options = set(exp)
+    sOptTmp = meta.get("seen_options")
+    if sOptTmp == None:
+        sOptTmp = []
+    seen_options = set(sOptTmp)
 
     try:
         options, hasOptions = safe_get_option_chain(config["consumer"], ticker)
@@ -257,7 +259,7 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
             eval_result[("SecondaryStrategy", "N/A", "Result")] = False
             eval_result[("SecondaryStrategy", "N/A", "Message")] = "Skipped due to primary failure"
 
-        if eval_cache is not None:
+        if eval_cache:
             eval_cache.add(ticker, eval_result)
         processed_osi_keys.add(osi_key)
 
@@ -276,6 +278,7 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
 # ------------------------- Main scanner -------------------------
 
 def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debug=False):
+    logger = getLogger()
     logger.logMessage("[Buy Scanner] Starting run_buy_scan")
     _reset_globals()  # reset counters and locks at each run
     

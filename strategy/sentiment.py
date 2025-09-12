@@ -4,20 +4,29 @@ from strategy.base import BuyStrategy,SellStrategy
 from models.option import OptionContract
 import yfinance as yf
 import requests
-from transformers import pipeline
 import os
 from services.news_aggregator import aggregate_headlines_smart
 from models.generated.Position import Position
 from services.core.cache_manager import NewsApiCache,RateLimitCache
 from typing import Optional,Union
+from services.logging.logger_singleton import getLogger
 
 MAX_LEN = 250  # trim text before passing to model
-sentiment_pipeline = pipeline(
-    "sentiment-analysis",
-    model="distilbert/distilbert-base-uncased-finetuned-sst-2-english",
-    revision="714eb0f",  # optional, pins the exact version
-    device=-1
-)
+
+
+def loadSentimentPipeline():
+    logger = getLogger()
+    logger.logMessage("Loading Sentiment Pipeline")
+    from transformers import pipeline
+
+    sentiment_pipeline = pipeline(
+        "sentiment-analysis",
+        model="distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+        revision="714eb0f",  # optional, pins the exact version
+        device=-1
+    )
+    logger.logMessage("Sentiment Pipeline loaded")
+    return sentiment_pipeline
 
 ETF_LOOKUP = {
     "Technology": "XLK",

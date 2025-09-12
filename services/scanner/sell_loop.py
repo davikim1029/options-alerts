@@ -1,5 +1,5 @@
 from datetime import datetime, time as dt_time
-from services.logging.logger_singleton import logger
+from services.logging.logger_singleton import getLogger
 from services.scanner.sell_scanner import run_sell_scan
 from services.scanner.scanner_utils import wait_interruptible
 from services.alerts import send_alert
@@ -18,6 +18,7 @@ def sell_loop(stop_event, **kwargs):
     consumer = kwargs.get("consumer")
     caches = kwargs.get("caches")
     debug = kwargs.get("debug", False)
+    logger = getLogger()
 
     global _running
     if _running:

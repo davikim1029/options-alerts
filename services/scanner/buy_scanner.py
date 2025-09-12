@@ -203,25 +203,26 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
         underlying_guess = sorted_options[0].strikePrice
 
     # ----------------------- Incremental filtering -----------------------
-    new_options = []
-    for opt in options:
-        strike = getattr(opt, "strikePrice", None)
-        expiry = getattr(opt.product, "expiryDay", None)
-        osi_key = getattr(opt, "osiKey", None)
-        if expiry is None or strike is None or osi_key is None:
-            continue
+    #new_options = []
+    #for opt in options:
+    #    strike = getattr(opt, "strikePrice", None)
+    #    expiry = getattr(opt.product, "expiryDay", None)
+    #    osi_key = getattr(opt, "osiKey", None)
+    #    if expiry is None or strike is None or osi_key is None:
+    #        continue
 
-        expiry_str = f"{getattr(opt.product, 'expiryYear')}-{getattr(opt.product, 'expiryMonth')}-{getattr(opt.product, 'expiryDay')}"
-        if strike >= (min_strike_cached or 0) and strike <= (max_strike_cached or 0) and expiry_str in expirations_cached and osi_key in seen_options:
-            continue
+    #    expiry_str = f"{getattr(opt.product, 'expiryYear')}-{getattr(opt.product, 'expiryMonth')}-{getattr(opt.product, 'expiryDay')}"
+    #    if strike >= (min_strike_cached or 0) and strike <= (max_strike_cached or 0) and expiry_str in expirations_cached and osi_key in seen_options:
+    #        continue
 
-        if _should_keep_option(opt, underlying_guess, config):
-            new_options.append(opt)
+    #    if _should_keep_option(opt, underlying_guess, config):
+    #        new_options.append(opt)
 
-    if not new_options:
-        return
+    #if not new_options:
+    #    return
 
     # ----------------------- Evaluate new options -----------------------
+    new_options = options
     processed_osi_keys = set()
     for opt in new_options:
         should_buy = True

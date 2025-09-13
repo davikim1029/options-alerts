@@ -10,6 +10,7 @@ from strategy.buy import OptionBuyStrategy
 from strategy.sentiment import SectorSentimentStrategy
 from services.token_status import TokenStatus
 from services.etrade_consumer import TokenExpiredError
+from services.core.cache_manager import LastTickerCache,IgnoreTickerCache,BoughtTickerCache,EvalCache,TickerMetadata
 
 executor = None
 _exectuor_lock = threading.RLock()
@@ -49,23 +50,6 @@ total_iterated = 0
 api_worker_lock = threading.Lock()
 print("[Buy Scanner] Module loaded/reloaded")  # Hot reload indicator
 
-# ------------------------- Helpers -------------------------
-
-class _DictCacheFallback:
-    """Fallback in-memory cache if ticker_metadata cache is missing."""
-    def __init__(self):
-        self._d = {}
-    def get(self, key, default=None):
-        return self._d.get(key, default)
-    def add(self, key, value):
-        self._d[key] = value
-    def is_cached(self, key):
-        return key in self._d
-    def clear(self):
-        self._d.clear()
-    def _save_cache(self):
-        return
-    
 # ------------------------- Hot-reload reset -------------------------
 # Global executor (optional, shared)
 executor = None
@@ -89,10 +73,6 @@ def _reset_globals():
     processed_counter = 0
     total_iterated = 0
 
-    # Reset fallback cache
-    fallback_cache = _DictCacheFallback()
-
-
 
 _reset_globals()  # call on module load/reload
 
@@ -112,30 +92,6 @@ def safe_get_option_chain(consumer, ticker):
         logger.logMessage("[Buy Scanner] Token restored, resuming scan.")
         
 
-def _should_keep_option(opt, underlying_guess, config):
-    """Contract-level pruning: volume, ask, strike range."""
-    try:
-        vol = getattr(opt, "volume", None)
-        if vol is None or vol < config.get("min_volume", 50):
-            return False
-
-        ask = getattr(opt, "ask", None)
-        if ask is None or ask * 100 < config.get("min_ask_cents", 5) or ask * 100 > config.get("max_ask_cents", 50):
-            return False
-
-        strike = getattr(opt, "strikePrice", None)
-        if strike is None:
-            return False
-
-        if underlying_guess is not None and not (underlying_guess * 0.8 <= strike <= underlying_guess * 1.2):
-            return False
-
-        return True
-    except Exception:
-        return False
-
-
-
 # ------------------------- Per-ticker worker -------------------------
 def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,stop_event = None, debug=False):
     logger = getLogger()
@@ -145,12 +101,13 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
     global total_iterated
     total_iterated += 1
 
-    ignore_cache = getattr(caches, "ignore", None)
-    bought_cache = getattr(caches, "bought", None)
-    last_ticker_cache = getattr(caches, "last_seen", None)
+
+    ignore_cache = getattr(caches, "ignore", None) or IgnoreTickerCache()
+    bought_cache = getattr(caches, "bought", None) or BoughtTickerCache()
+    last_ticker_cache = getattr(caches, "last_seen", None) or LastTickerCache()
     
-    eval_cache = getattr(caches, "eval", None)
-    ticker_metadata_cache = getattr(caches, "ticker_metadata", fallback_cache)
+    eval_cache = getattr(caches, "eval", None) or EvalCache()
+    ticker_metadata_cache = getattr(caches, "ticker_metadata",None) or TickerMetadata()
 
     if ignore_cache and ignore_cache.is_cached(ticker):
         return
@@ -184,7 +141,7 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
     if sOptTmp == None:
         sOptTmp = []
     seen_options = set(sOptTmp)
-
+    
     try:
         options, hasOptions = safe_get_option_chain(config["consumer"], ticker)
         if not hasOptions or not options:
@@ -195,40 +152,11 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
         if debug:
             logger.logMessage(f"[Buy Scanner] Error fetching options for {ticker}: {e}")
         return
-
-    # Estimate ATM
-    underlying_guess = None
-    sorted_options = sorted(options, key=lambda o: abs((o.lastPrice or 0) - getattr(o, "strikePrice", 0)))
-    if sorted_options:
-        underlying_guess = sorted_options[0].strikePrice
-
-    # ----------------------- Incremental filtering -----------------------
-    #new_options = []
-    #for opt in options:
-    #    strike = getattr(opt, "strikePrice", None)
-    #    expiry = getattr(opt.product, "expiryDay", None)
-    #    osi_key = getattr(opt, "osiKey", None)
-    #    if expiry is None or strike is None or osi_key is None:
-    #        continue
-
-    #    expiry_str = f"{getattr(opt.product, 'expiryYear')}-{getattr(opt.product, 'expiryMonth')}-{getattr(opt.product, 'expiryDay')}"
-    #    if strike >= (min_strike_cached or 0) and strike <= (max_strike_cached or 0) and expiry_str in expirations_cached and osi_key in seen_options:
-    #        continue
-
-    #    if _should_keep_option(opt, underlying_guess, config):
-    #        new_options.append(opt)
-
-    #if not new_options:
-    #    return
-
-    # ----------------------- Evaluate new options -----------------------
-    new_options = options
     processed_osi_keys = set()
-    for opt in new_options:
+    for opt in options:
         should_buy = True
         eval_result = {}
         osi_key = getattr(opt, "osiKey", None)
-
         try:
             for primary in buy_strategies["Primary"]:
                 success, error = primary.should_buy(opt, context)
@@ -237,7 +165,7 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
                 eval_result[(key[0], key[1], "Message")] = error if not success else "Passed"
                 if not success and debug:
                     logger.logMessage(f"[Buy Scanner] {getattr(opt, 'displaySymbol', '?')} fails {primary.name}: {error}")
-                should_buy = should_buy and success
+                    should_buy = False
         except Exception as e:
             logger.logMessage(f"[Buy Scanner] - Failed to evaluate primary buy strategy(s) for reason: {e}")
 
@@ -251,15 +179,14 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
                     eval_result[(key[0], key[1], "Message")] = error if not success else "Passed"
                     if not success:
                         secondary_failure = f" | Secondary Failure: {error}"
-            #if secondary_failure:
-            #    continue
             except Exception as e:
                 logger.logMessage(f"[Buy Scanner] - Failed to evaluate secondary buy strategy(s) for reason: {e}")
-
+            
+            if secondary_failure != "":
+                continue
             try:
-                if getattr(opt, "ask", 99999) * 100 < 120:
-                    msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {opt.ask*100}{secondary_failure}"
-                    send_alert(msg)
+                msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {opt.ask*100}{secondary_failure}"
+                send_alert(msg)
             except Exception as e:
                 logger.logMessage("[Buy Scanner] Error sending notification")
                 pass
@@ -272,8 +199,8 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
         processed_osi_keys.add(osi_key)
 
     # ----------------------- Update ticker metadata -----------------------
-    strikes_seen = [getattr(o, "strikePrice", 0) for o in new_options]
-    expirations_seen = [f"{getattr(o.product, 'expiryYear')}-{getattr(o.product, 'expiryMonth')}-{getattr(o.product, 'expiryDay')}" for o in new_options]
+    strikes_seen = [getattr(o, "strikePrice", 0) for o in options]
+    expirations_seen = [f"{getattr(o.product, 'expiryYear')}-{getattr(o.product, 'expiryMonth')}-{getattr(o.product, 'expiryDay')}" for o in options]
 
     ticker_metadata_cache.add(ticker, {
         "min_strike": min(strikes_seen + [min_strike_cached] if min_strike_cached else strikes_seen),

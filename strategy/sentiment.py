@@ -177,7 +177,7 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
 
     def get_symbol(self, obj: Union[OptionContract, Position]):
         if isinstance(obj, OptionContract):
-            return obj.underlyingSymbol
+            return obj.symbol
         elif isinstance(obj, Position):
             return obj.Product.symbol
         else:

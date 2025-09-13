@@ -9,8 +9,8 @@ from services.etrade_consumer import TokenExpiredError
 
 
 # Default values for initial load; will be overridden by kwargs if present
-DEFAULT_START_TIME = dt_time(8,30)
-DEFAULT_END_TIME = dt_time(17,30)
+DEFAULT_START_TIME = dt_time(0,1)
+DEFAULT_END_TIME = dt_time(23,59)
 DEFAULT_COOLDOWN_SECONDS = 300  # 5 minutes
 
 token_status = TokenStatus()

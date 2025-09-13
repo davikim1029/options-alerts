@@ -204,7 +204,7 @@ class TickerCache(CacheManager):
 
 class EvalCache(CacheManager):
     def __init__(self):
-        super().__init__("Eval Cache", "cache/evaluated.json", ttl_minutes=5)
+        super().__init__("Eval Cache", "cache/evaluated.json", ttl_days=1)
 
 
 class LastTickerCache(CacheManager):
@@ -254,7 +254,8 @@ class Caches:
             (self.news.autosave_loop, "NewsAPI Cache Autosave"),
             (self.rate.autosave_loop, "RateLimit Cache Autosave"),
             (self.last_seen.autosave_loop, "Last Ticker Cache Autosave"),
-            (self.ticker_metadata.autosave_loop,"Ticker Metadata Cache Autosave")
+            (self.ticker_metadata.autosave_loop,"Ticker Metadata Cache Autosave"),
+            (self.eval.autosave_loop,"Evaluation Cache Autosave")
         ]
 
     # Clear all caches

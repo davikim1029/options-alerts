@@ -108,7 +108,10 @@ def analyze_ticker(ticker, context, buy_strategies, caches, config, debug=False)
     
     global total_iterated, processed_counter
     total_iterated += 1
-
+    
+    with counter_lock:
+        if (total_iterated % 5):
+            logger.flush()
     ignore_cache = getattr(caches, "ignore", None) or IgnoreTickerCache()
     bought_cache = getattr(caches, "bought", None) or BoughtTickerCache()
     last_ticker_cache = getattr(caches, "last_seen", None) or LastTickerCache()
@@ -261,7 +264,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, seconds_to_wait=0, debu
         start_index = 0
 
     global remaining_ticker_count
-    remaining_ticker_count = total_tickers - (start_index+1)
+    remaining_ticker_count = total_tickers - (start_index)
     remaining_tickers = ticker_keys[start_index:]
     
     logger.logMessage(f"[Buy Scanner] {start_index+1} tickers processed. {total_tickers - start_index} remaining.")

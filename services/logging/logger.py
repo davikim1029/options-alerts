@@ -35,6 +35,10 @@ class Logger:
         self._file_handler.setLevel(logging.INFO if file else logging.CRITICAL+1)
         self._console_handler.setLevel(logging.INFO if console else logging.CRITICAL+1)
         self.logger.info(message)
+        
+    def flush(self):
+        for handler in self.logger.handlers:
+            handler.flush()
 
     def _log_exit(self, reason=None):
         self.log(f"Script terminated ({reason})")

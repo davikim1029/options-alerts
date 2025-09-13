@@ -157,8 +157,8 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
         should_buy = True
         eval_result = {}
         osi_key = getattr(opt, "osiKey", None)
-        try:
-            for primary in buy_strategies["Primary"]:
+        for primary in buy_strategies["Primary"]:
+            try:
                 success, error = primary.should_buy(opt, context)
                 key = ("PrimaryStrategy", primary.name)
                 eval_result[(key[0], key[1], "Result")] = success
@@ -166,21 +166,29 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
                 if not success and debug:
                     logger.logMessage(f"[Buy Scanner] {getattr(opt, 'displaySymbol', '?')} fails {primary.name}: {error}")
                     should_buy = False
-        except Exception as e:
-            logger.logMessage(f"[Buy Scanner] - Failed to evaluate primary buy strategy(s) for reason: {e}")
+            except Exception as e:
+                should_buy = False
+                success = False
+                eval_result[(key[0], key[1], "Result")] = False
+                eval_result[(key[0], key[1], "Message")] = e
+                logger.logMessage(f"[Buy Scanner] - Failed to evaluate primary buy strategy(s) for reason: {e}")
 
         if should_buy:
             secondary_failure = ""
-            try:
-                for secondary in buy_strategies["Secondary"]:
+            for secondary in buy_strategies["Secondary"]:
+                try:
                     success, error = secondary.should_buy(opt, context)
                     key = ("SecondaryStrategy", secondary.name)
                     eval_result[(key[0], key[1], "Result")] = success
                     eval_result[(key[0], key[1], "Message")] = error if not success else "Passed"
                     if not success:
                         secondary_failure = f" | Secondary Failure: {error}"
-            except Exception as e:
-                logger.logMessage(f"[Buy Scanner] - Failed to evaluate secondary buy strategy(s) for reason: {e}")
+                except Exception as e:
+                    should_buy = False
+                    success = False
+                    eval_result[(key[0], key[1], "Result")] = False
+                    eval_result[(key[0], key[1], "Message")] = e
+                    logger.logMessage(f"[Buy Scanner] - Failed to evaluate secondary buy strategy(s) for reason: {e}")
             
             if secondary_failure != "":
                 continue

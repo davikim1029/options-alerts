@@ -35,6 +35,7 @@ class Logger:
         self._file_handler.setLevel(logging.INFO if file else logging.CRITICAL+1)
         self._console_handler.setLevel(logging.INFO if console else logging.CRITICAL+1)
         self.logger.info(message)
+        self.flush()
         
     def flush(self):
         for handler in self.logger.handlers:

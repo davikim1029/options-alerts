@@ -38,6 +38,7 @@ class NewsClient:
 class NewsAPIClient(NewsClient):
     def __init__(self,rate_cache,logger):
         self.rate_cache = rate_cache
+        self.logger = logger
         api_key = os.getenv("NEWSAPI_KEY")
         if not api_key:
             raise ValueError("NEWSAPI_KEY not set in environment.")
@@ -50,15 +51,16 @@ class NewsAPIClient(NewsClient):
             "nytimes.com", "ft.com", "forbes.com", "businessinsider.com", "yahoo.com"
         ]
         news_sources_str = ",".join(news_sources)
-        if self.rate_cache is not None and self.rate_cache.is_cached(f"NewsAPI:{ticker}"):
+        if self.rate_cache is not None and self.rate_cache.is_cached("NewsAPI"):
             return None
 
         url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&sources={news_sources_str}"
         resp = requests.get(url, headers={"Authorization": f"Bearer {self.api_key}"})
         if resp.status_code == 429:
-            logger.logMessage("[NewsAPI] Rate limit hit")
+            self.logger.logMessage("[NewsAPI] Rate limit hit")
             if self.rate_cache is not None:
-                self.rate_cache.add(f"NewsAPI:{ticker}", 24*3600)  # reset daily
+                self.rate_cache.add("NewsAPI", 24*3600)  # reset daily
+                self.rate_cache._save_cache()
             return None
         if resp.status_code != 200:
             return None
@@ -79,11 +81,12 @@ class NewsAPIClient(NewsClient):
 
 class NewsDataClient(NewsClient):
     def __init__(self,rate_cache:RateLimitCache,logger):
+        self.logger = logger
         self.rate_cache = rate_cache
         self.api_key = os.getenv("NEWSDATA_KEY")
 
     def fetch(self, ticker: str) -> Optional[List[Dict]]:
-        if self.rate_cache is not None and self.rate_cache.is_cached(f"NewsData:{ticker}"):
+        if self.rate_cache is not None and self.rate_cache.is_cached("NewsData"):
             return None
         
         categories = ["business"]  # could add more later, e.g., ["business", "technology"]
@@ -92,9 +95,11 @@ class NewsDataClient(NewsClient):
         url = f"https://newsdata.io/api/1/news?apikey={self.api_key}&q={ticker}&language=en&category={categories_str}"
         resp = requests.get(url)
         if resp.status_code == 429:
-            logger.logMessage("[NewsData] Rate limit hit")
+            self.logger.logMessage("[NewsData] Rate limit hit")
             if self.rate_cache is not None:
-                self.rate_cache.add(f"NewsData:{ticker}", 3600)  # assume hourly reset
+                self.rate_cache.add(f"NewsData", 3600)  # assume hourly reset
+                self.rate_cache._save_cache()
+                
             return None
         if resp.status_code != 200:
             return None
@@ -113,7 +118,8 @@ class NewsDataClient(NewsClient):
         return headlines    
 
 class GoogleNewsClient(NewsClient):
-    def __init__(self,rate_cache):
+    def __init__(self,rate_cache,logger):
+        self.logger=logger
         self.rate_cache = rate_cache
         
     def _build_query_url(self, keywords: list[str]) -> str:
@@ -130,13 +136,16 @@ class GoogleNewsClient(NewsClient):
         
         
     def fetch(self, ticker: str) -> List[Dict]:
-        cache_key = f"GoogleNews:{ticker}"
+        cache_key = f"GoogleNews"
         if self.rate_cache is not None and self.rate_cache.is_cached(cache_key):
             return self.rate_cache.get(cache_key)
         
         keywords = [ticker, "stock", "shares", "finance"]
         url = self._build_query_url(keywords)
-        feed = feedparser.parse(url)
+        try:
+            feed = feedparser.parse(url)
+        except Exception as e:
+            self.logger.logMessage(f"Error with google news: {e}")
         
         headlines = []
         for entry in feed.entries:

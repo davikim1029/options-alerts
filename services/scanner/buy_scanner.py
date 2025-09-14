@@ -140,44 +140,63 @@ def analyze_ticker(ticker, context, buy_strategies, caches, config, debug=False)
     for opt in options:
         should_buy = True
         osi_key = getattr(opt, "osiKey", None)
-
+        processed_osi_keys.add(osi_key)
         # Primary strategies
         for primary in buy_strategies["Primary"]:
             try:
-                success, error = primary.should_buy(opt, context)
-                eval_result[(primary.name, "Primary")] = (success, error)
-                if not success:
-                    should_buy = False
-            except Exception as e:
-                should_buy = False
-                eval_result[(primary.name, "Primary")] = (False, str(e))
+                success, error = primary.should_buy(opt, context) 
+                key = ("PrimaryStrategy", primary.name) 
+                eval_result[(key[0], key[1], "Result")] = success 
+                eval_result[(key[0], key[1], "Message")] = error if not success else "Passed" 
+                if not success and debug: 
+                    logger.logMessage(f"[Buy Scanner] {getattr(opt, 'displaySymbol', '?')} fails {primary.name}: {error}") 
+                    should_buy = False 
+            except Exception as e: 
+                should_buy = False 
+                success = False 
+                eval_result[(key[0], key[1], "Result")] = False 
+                eval_result[(key[0], key[1], "Message")] = e 
+                logger.logMessage(f"[Buy Scanner] - Failed to evaluate primary buy strategy(s) for reason: {e}")
 
         # Secondary strategies
         if should_buy:
+            secondary_failure = ""
             for secondary in buy_strategies["Secondary"]:
-                try:
-                    success, error = secondary.should_buy(opt, context)
-                    eval_result[(secondary.name, "Secondary")] = (success, error)
-                    if not success:
-                        should_buy = False
-                except Exception as e:
-                    should_buy = False
-                    eval_result[(secondary.name, "Secondary")] = (False, str(e))
-
-        if should_buy:
-            msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {opt.ask*100}"
-            buy_alerts.append(msg)
-
-        processed_osi_keys.add(osi_key)
+                try: 
+                    success, error = secondary.should_buy(opt, context) 
+                    key = ("SecondaryStrategy", secondary.name) 
+                    eval_result[(key[0], key[1], "Result")] = success 
+                    eval_result[(key[0], key[1], "Message")] = error if not success else "Passed" 
+                    if not success: 
+                        if secondary_failure == "":
+                            secondary_failure = f" | Secondary Failure: {error}" 
+                        else:
+                            secondary_failure = f"{secondary_failure} / {error}"
+                except Exception as e: 
+                    should_buy = False 
+                    success = False 
+                    eval_result[(key[0], key[1], "Result")] = False 
+                    eval_result[(key[0], key[1], "Message")] = e 
+                    logger.logMessage(f"[Buy Scanner] - Failed to evaluate secondary buy strategy(s) for reason: {e}") 
         
-        with counter_lock:
-            processed_counter += 1
-            if processed_counter % 250 == 0 or processed_counter == remaining_ticker_count:
-                thread_name = threading.current_thread().name.split("_")[1]
-                logger.logMessage(
-                    f"[Buy Scanner] Thread {thread_name} | "
-                    f"Processed {processed_counter}. "
-                    f"{remaining_ticker_count - total_iterated} tickers remaining"
+        if secondary_failure != "": 
+            continue
+        
+        msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {opt.ask*100}"
+        send_alert(msg)
+        buy_alerts.append(msg)
+        
+    with counter_lock:
+        processed_counter += 1
+        if processed_counter % 5 == 0 and last_ticker_cache: 
+            last_ticker_cache.add("lastSeen", ticker)
+        
+        if processed_counter % 250 == 0 or processed_counter == remaining_ticker_count:
+            thread_name = threading.current_thread().name.split("_")[1]
+            logger.logMessage(
+                f"[Buy Scanner] Thread {thread_name} | "
+                f"Processed {processed_counter}. "
+                f"{remaining_ticker_count - total_iterated} tickers remaining"
                 )
 
     # Build metadata
@@ -213,22 +232,7 @@ def _process_ticker_incremental(ticker, context, buy_strategies, caches, config,
 # ------------------------- Post-processing -------------------------
 def post_process_results(results, caches, stop_event=None):
     logger = getLogger()
-    last_ticker_cache = getattr(caches, "last_seen", None)
-
-    if last_ticker_cache:
-        for idx, r in enumerate(results):
-            if r and idx % 5 == 0:
-                last_ticker_cache.add("lastSeen", r.ticker)
-        if not (stop_event and stop_event.is_set()):
-            last_ticker_cache.clear()
-
-    for r in results:
-        if r and r.buy_alerts:
-            for msg in r.buy_alerts:
-                try:
-                    send_alert(msg)
-                except Exception:
-                    logger.logMessage("[Buy Scanner] Error sending notification")
+    logger.logMessage("We've hit post processing")
 
 
 # ------------------------- Main scanner -------------------------

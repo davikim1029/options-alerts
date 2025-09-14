@@ -10,23 +10,40 @@ from models.generated.Position import Position
 from services.core.cache_manager import NewsApiCache,RateLimitCache
 from typing import Optional,Union
 from services.logging.logger_singleton import getLogger
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 
 MAX_LEN = 250  # trim text before passing to model
 
+_sentiment_pipeline = None
 
 def loadSentimentPipeline():
     logger = getLogger()
     logger.logMessage("Loading Sentiment Pipeline")
-    from transformers import pipeline
+    
+    global _sentiment_pipeline
+    if _sentiment_pipeline == None:
+        
+        model_name = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
 
-    sentiment_pipeline = pipeline(
-        "sentiment-analysis",
-        model="distilbert/distilbert-base-uncased-finetuned-sst-2-english",
-        revision="714eb0f",  # optional, pins the exact version
-        device=-1
-    )
+        # Force tokenizer + model load on CPU
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_name,
+            device_map=None,       # don't shard
+            torch_dtype="float32"  # safe for CPU
+        )
+
+        _sentiment_pipeline = pipeline(
+            "sentiment-analysis",
+            model=model,
+            tokenizer=tokenizer,
+            device=-1              # CPU
+        )
     logger.logMessage("Sentiment Pipeline loaded")
-    return sentiment_pipeline
+    return _sentiment_pipeline
+
+
 
 ETF_LOOKUP = {
     "Technology": "XLK",
@@ -48,6 +65,7 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
     def __init__(self, news_cache:NewsApiCache, rate_cache:RateLimitCache ):
         self._news_cache = news_cache
         self._rate_cache = rate_cache
+        self.sentiment_pipeline = loadSentimentPipeline()
     
     """
     Combines buy and sell sentiment logic for options based on sector ETF trend
@@ -143,7 +161,7 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
         ]
 
         # Run through pipeline (will batch internally)
-        results = sentiment_pipeline(combined_headlines, truncation=True)
+        results = self.sentiment_pipeline(combined_headlines, truncation=True)
 
         # Convert to +/- scores
         scores = []
@@ -167,7 +185,7 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
         return None
     
     def get_cached_info(self,ticker:str):
-        if self._newscache.is_cached(ticker):
+        if self._news_cache.is_cached(ticker):
             cached_value = self._news_cache.get(ticker)
             headlines = cached_value["headlines"]
             avg_sentiment = cached_value["avg_sentiment"]

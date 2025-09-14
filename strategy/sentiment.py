@@ -10,38 +10,52 @@ from models.generated.Position import Position
 from services.core.cache_manager import NewsApiCache,RateLimitCache
 from typing import Optional,Union
 from services.logging.logger_singleton import getLogger
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
+import transformers
+import threading
 
 MAX_LEN = 250  # trim text before passing to model
 
 _sentiment_pipeline = None
+_pipeline_lock = threading.Lock()
+_pipeline_ready = threading.Event()  # threads wait on this
 
-def loadSentimentPipeline():
-    logger = getLogger()
-    logger.logMessage("Loading Sentiment Pipeline")
-    
+def getSentimentPipeline():
     global _sentiment_pipeline
-    if _sentiment_pipeline == None:
-        
-        model_name = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
 
-        # Force tokenizer + model load on CPU
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
+    # Fast path: already loaded
+    if _sentiment_pipeline is not None:
+        return _sentiment_pipeline
 
-        model = AutoModelForSequenceClassification.from_pretrained(
-            model_name,
-            device_map=None,       # don't shard
-            torch_dtype="float32"  # safe for CPU
-        )
+    # Only one thread should load
+    with _pipeline_lock:
+        # Double-check in case another thread finished while we waited
+        if _sentiment_pipeline is None:
+            # Load the pipeline
+            logger = getLogger()
+            logger.logMessage("Loading Pipeline")
+            model_name = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
+            tokenizer = transformers.AutoTokenizer.from_pretrained(model_name)
+            model = transformers.AutoModelForSequenceClassification.from_pretrained(
+                model_name,
+                device_map=None,
+                torch_dtype="float32"
+            )
 
-        _sentiment_pipeline = pipeline(
-            "sentiment-analysis",
-            model=model,
-            tokenizer=tokenizer,
-            device=-1              # CPU
-        )
-    logger.logMessage("Sentiment Pipeline loaded")
+            _sentiment_pipeline = transformers.pipeline(
+                "sentiment-analysis",
+                model=model,
+                tokenizer=tokenizer,
+                device=-1
+            )
+
+            # Signal all waiting threads
+            logger.logMessage("Pipeline loaded")
+            _pipeline_ready.set()
+
+    # Wait for pipeline to be ready (for threads that reached here before first thread finished)
+    _pipeline_ready.wait()
     return _sentiment_pipeline
+
 
 
 
@@ -65,7 +79,7 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
     def __init__(self, news_cache:NewsApiCache, rate_cache:RateLimitCache ):
         self._news_cache = news_cache
         self._rate_cache = rate_cache
-        self.sentiment_pipeline = loadSentimentPipeline()
+        self.sentiment_pipeline = getSentimentPipeline()
     
     """
     Combines buy and sell sentiment logic for options based on sector ETF trend

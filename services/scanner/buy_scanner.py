@@ -148,9 +148,10 @@ def analyze_ticker(ticker, context, buy_strategies, caches, config, debug=False)
                 key = ("PrimaryStrategy", primary.name) 
                 eval_result[(key[0], key[1], "Result")] = success 
                 eval_result[(key[0], key[1], "Message")] = error if not success else "Passed" 
-                if not success and debug: 
-                    logger.logMessage(f"[Buy Scanner] {getattr(opt, 'displaySymbol', '?')} fails {primary.name}: {error}") 
-                    should_buy = False 
+                if not success:
+                    should_buy = False
+                    if debug:
+                        logger.logMessage(f"[Buy Scanner] {getattr(opt, 'displaySymbol', '?')} fails {primary.name}: {error}") 
             except Exception as e: 
                 should_buy = False 
                 success = False 
@@ -179,12 +180,12 @@ def analyze_ticker(ticker, context, buy_strategies, caches, config, debug=False)
                     eval_result[(key[0], key[1], "Message")] = e 
                     logger.logMessage(f"[Buy Scanner] - Failed to evaluate secondary buy strategy(s) for reason: {e}") 
         
-        if secondary_failure != "": 
-            continue
-        
-        msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {opt.ask*100}"
-        send_alert(msg)
-        buy_alerts.append(msg)
+            if secondary_failure != "": 
+                continue
+            
+            msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {opt.ask*100}"
+            send_alert(msg)
+            buy_alerts.append(msg)
         
     with counter_lock:
         processed_counter += 1

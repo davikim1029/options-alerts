@@ -132,8 +132,7 @@ def analyze_ticker(ticker, context, buy_strategies, caches, config, debug=False)
             ignore_cache.add(ticker, "")
             return None
     except Exception as e:
-        if debug:
-            logger.logMessage(f"[Buy Scanner] Error fetching options for {ticker}: {e}")
+        logger.logMessage(f"[Buy Scanner] Error fetching options for {ticker}: {e}")
         return None
 
     processed_osi_keys = set()
@@ -186,6 +185,10 @@ def analyze_ticker(ticker, context, buy_strategies, caches, config, debug=False)
             msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {opt.ask*100}"
             send_alert(msg)
             buy_alerts.append(msg)
+        else:
+            eval_result["SecondaryStrategy","N/A","Result"] = False
+            eval_result["SecondaryStrategy","N/A","Message"] = "Failed Primary Evaluation"
+
         
     with counter_lock:
         processed_counter += 1

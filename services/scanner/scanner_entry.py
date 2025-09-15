@@ -5,6 +5,7 @@ from services.logging.logger_singleton import getLogger
 
 def start_scanner(debug=False):
     logger = getLogger()
+        
     try:
         manager = ThreadManager.instance()
 
@@ -19,7 +20,6 @@ def start_scanner(debug=False):
         )
 
         # Start hot-reload watcher
-        manager.start_watcher(Path("services"))
         manager.wait_for_shutdown()
 
     except KeyboardInterrupt:

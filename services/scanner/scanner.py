@@ -111,7 +111,7 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
         consumer = EtradeConsumer(sandbox=False, debug=debug)
 
     caches = Caches()
-    api_worker_mod.init_worker(consumer, min_interval=2)
+    api_worker_mod.init_worker(consumer,stop_event=stop_event, min_interval=2)
     consumer.apiWorker = api_worker_mod.get_worker()
 
     manager = ThreadManager.instance(consumer=consumer, caches=caches)
@@ -135,9 +135,7 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
     # ---------------------------
     # Start threads
     # ---------------------------
-    # API Worker
-    manager.add_thread("HTTP Worker", consumer.apiWorker._worker, daemon=True, reload_files=[])
-
+    
     # Input
     manager.add_thread("Input Listener", input_listener, daemon=True, reload_files=[])
     manager.add_thread("Input Processor", input_processor, daemon=True, reload_files=[])
@@ -153,6 +151,7 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
       "Buy Scanner",
       buy_mod.buy_loop,
       kwargs={
+          "stop_event":stop_event,
           "consumer": consumer,
           "caches": caches,
           "debug": debug,

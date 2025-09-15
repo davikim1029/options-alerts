@@ -1,4 +1,4 @@
-# services/threading/api_worker.py
+
 import queue
 import time
 import threading
@@ -6,19 +6,17 @@ import enum
 from dataclasses import dataclass
 from typing import Optional, Any
 import requests
+import uuid
+from typing import Callable
 
-# ---------------------------
-# HTTP method enum
-# ---------------------------
+
 class HttpMethod(enum.Enum):
     GET = "GET"
     PUT = "PUT"
     POST = "POST"
     DELETE = "DELETE"
 
-# ---------------------------
-# HTTP result container
-# ---------------------------
+
 @dataclass
 class HttpResult:
     ok: bool
@@ -27,33 +25,112 @@ class HttpResult:
     error: Optional[str] = None
     response: Optional[requests.Response] = None
 
-# ---------------------------
-# ApiWorker class
-# ---------------------------
+
 class ApiWorker:
-    def __init__(self, consumer, min_interval: float = 1.0, default_timeout: float = 30.0):
+    def __init__(self, consumer,stop_event, min_interval: float = 1.0, default_timeout: float = 30.0, num_workers: int = 4):
         self.consumer = consumer
         self._queue = queue.Queue()
         self._min_interval = min_interval
-        self._last_call = 0.0
-        self._lock = threading.Lock()
         self._default_timeout = default_timeout
-        self._stop_event = threading.Event()
+        self._stop_event = stop_event if stop_event is not None else threading.Event()
 
-    def _worker(self, stop_event):
-        stop_event = stop_event or self._stop_event
-        while not stop_event.is_set() or not self._queue.empty():
-            try:
-                method, url, kwargs, result = self._queue.get(timeout=1)
-            except queue.Empty:
-                continue
+        
+        
+        # shared rate limiter
+        self._last_call = 0.0
+        self._rate_lock = threading.Lock()
 
+        # worker pool
+        self._threads = []
+        for i in range(num_workers):
+            t = threading.Thread(target=self._worker, name=f"ApiWorker-{i}", kwargs={"stop_event":stop_event}, daemon=True)
+            t.start()
+            self._threads.append(t)
+
+    def _respect_rate_limit(self):
+        with self._rate_lock:
             now = time.time()
             elapsed = now - self._last_call
             if elapsed < self._min_interval:
-                stop_event.wait(self._min_interval - elapsed)
+                time.sleep(self._min_interval - elapsed)
             self._last_call = time.time()
 
+
+    def call_api(self, method: HttpMethod, url: str, timeout: float = 10.0, **kwargs) -> HttpResult:
+        """
+        Queue an API call and wait for result, but return early if stopped or timeout.
+        """
+        result = []
+        self._queue.put((method, url, kwargs, result))
+
+        start_time = time.time()
+        while not result:
+            if self._stop_event.is_set():
+                return HttpResult(ok=False, error="ApiWorker stopped before request completed")
+            if timeout is not None and (time.time() - start_time) > timeout:
+                return HttpResult(ok=False, error=f"Timeout waiting for ApiWorker while calling {url}")
+            time.sleep(0.01)
+
+        return result[0]
+
+    def stop(self):
+        self._stop_event.set()
+        # drain queue before joining
+        for t in self._threads:
+            t.join(timeout=1)
+
+
+    def call_api_async(
+        self,
+        method: HttpMethod,
+        url: str,
+        callback: Optional[Callable[[HttpResult], None]] = None,
+        **kwargs
+    ) -> str:
+        """
+        Fire-and-forget API call. 
+        Optionally pass a callback to process the HttpResult when ready.
+        Returns a job_id you can track.
+        """
+        job_id = str(uuid.uuid4())
+        self._queue.put((method, url, kwargs, callback, job_id))
+        return job_id
+    
+
+    def _worker(self,stop_event):
+        # prefer stop_event arg for compatibility, otherwise use instance stop_event
+        """
+        Worker loop that handles both sync and async API calls.
+        Sync call_api pushes (method, url, kwargs, result)
+        Async call_api_async pushes (method, url, kwargs, callback, job_id)
+        """
+    
+        while not self._stop_event.is_set() or not self._queue.empty():
+            try:
+                item = self._queue.get(timeout=1)
+            except queue.Empty:
+                continue
+    
+            # Detect format: sync vs async
+            if len(item) == 5:
+                method, url, kwargs, callback, job_id = item
+                is_async = True
+            elif len(item) == 4:
+                method, url, kwargs, result = item
+                callback = None
+                job_id = None
+                is_async = False
+            else:
+                self.consumer.logger.logMessage(f"[ApiWorker] Unexpected queue item format: {item}")
+                self._queue.task_done()
+                continue
+    
+            now = time.time()
+            elapsed = now - self._last_call
+            if elapsed < self._min_interval:
+                self._stop_event.wait(self._min_interval - elapsed)
+            self._last_call = time.time()
+    
             try:
                 timeout = kwargs.pop("timeout", self._default_timeout)
                 r = None
@@ -67,52 +144,43 @@ class ApiWorker:
                     r = self.consumer.session.delete(url, timeout=timeout, **kwargs)
                 else:
                     raise ValueError(f"Unsupported HTTP method: {method}")
-
+    
                 r.raise_for_status()
-                # Automatically parse JSON if applicable
-                result.append(HttpResult(ok=True, status_code=r.status_code, data=r, response=r))
-
+                result_obj = HttpResult(ok=True, status_code=r.status_code, data=r, response=r)
+    
+                if is_async and callback:
+                    try:
+                        callback(result_obj, job_id)
+                    except Exception as e:
+                        self.consumer.logger.logMessage(f"[ApiWorker] Async callback error: {e}")
+                elif not is_async:
+                    result.append(result_obj)
+    
             except requests.exceptions.HTTPError as e:
-                result.append(HttpResult(
+                err_obj = HttpResult(
                     ok=False,
-                    status_code=e.response.status_code if e.response != None else None,
+                    status_code=e.response.status_code if e.response else None,
                     error=f"HTTPError: {str(e)}",
                     response=e.response
-                ))
+                )
+                if is_async and callback:
+                    try:
+                        callback(err_obj, job_id)
+                    except Exception as e:
+                        self.consumer.logger.logMessage(f"[ApiWorker] Async callback error: {e}")
+                elif not is_async:
+                    result.append(err_obj)
             except Exception as e:
-                result.append(HttpResult(ok=False, error=f"Error: {str(e)}"))
+                err_obj = HttpResult(ok=False, error=f"Error: {str(e)}")
+                if is_async and callback:
+                    try:
+                        callback(err_obj, job_id)
+                    except Exception as ex:
+                        self.consumer.logger.logMessage(f"[ApiWorker] Async callback error: {ex}")
+                elif not is_async:
+                    result.append(err_obj)
             finally:
                 self._queue.task_done()
-
-
-    def call_api(self, method: HttpMethod, url: str, timeout: float = 10.0, **kwargs) -> HttpResult:
-        """
-        Queue an API call and wait for result, but return early if the ApiWorker
-        is stopped or the timeout is reached.
-        """
-        result = []
-        self._queue.put((method, url, kwargs, result))
-
-        start_time = time.time()
-        while not result:
-            # Check if the worker is shutting down
-            if self._stop_event.is_set():
-                return HttpResult(ok=False, error="ApiWorker stopped before request completed")
-            
-            # Check if we exceeded the timeout
-            if timeout is not None and (time.time() - start_time) > timeout:
-                return HttpResult(ok=False, error="Timeout waiting for ApiWorker")
-            
-            time.sleep(0.05)
-
-        # Worker returned a result
-        res = result[0]
-        if isinstance(res, Exception):
-            raise res
-        return res
-
-    
-    
     
 
 # ---------------------------
@@ -120,10 +188,10 @@ class ApiWorker:
 # ---------------------------
 _worker_instance: Optional[ApiWorker] = None
 
-def init_worker(consumer, min_interval: float = 1.0):
+def init_worker(consumer,stop_event, min_interval: float = 1.0):
     """Initialize the module-level ApiWorker singleton."""
     global _worker_instance
-    _worker_instance = ApiWorker(consumer=consumer, min_interval=min_interval)
+    _worker_instance = ApiWorker(consumer=consumer,stop_event=stop_event, min_interval=min_interval)
 
 def get_worker() -> ApiWorker:
     """Get the module-level ApiWorker singleton."""

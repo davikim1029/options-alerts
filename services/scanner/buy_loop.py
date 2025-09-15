@@ -16,7 +16,8 @@ DEFAULT_COOLDOWN_SECONDS = 300  # 5 minutes
 token_status = TokenStatus()
 
 _running = False 
-def buy_loop(stop_event, **kwargs):
+def buy_loop(**kwargs):
+    stop_event = kwargs.get("stop_event")
     consumer = kwargs.get("consumer")
     caches = kwargs.get("caches")
     debug = kwargs.get("debug", False)
@@ -41,7 +42,7 @@ def buy_loop(stop_event, **kwargs):
             now = datetime.now().time()
             if start_time <= now <= end_time or force_first_run:
                 try:
-                    run_buy_scan(stop_event=stop_event, consumer=consumer,seconds_to_wait=cooldown, caches=caches, debug=debug)
+                    run_buy_scan(stop_event=stop_event, consumer=consumer, caches=caches, debug=debug)
                 except TokenExpiredError:
                     logger.logMessage("[Buy Loop] Token expired, pausing scanner.")
                     send_alert("E*TRADE token expired. Please re-authenticate.")
@@ -53,8 +54,10 @@ def buy_loop(stop_event, **kwargs):
 
                 # Reset force_first_run after first execution
                 kwargs["force_first_run"] = False
-
+                logger.logMessage("[Buy Loop] Waiting")
                 wait_interruptible(stop_event, cooldown)
+                logger.logMessage("[Buy Loop] Wait interrupted")
+
             else:
                 now_dt = datetime.now()
                 today_start = datetime.combine(now_dt.date(), start_time)
@@ -83,5 +86,6 @@ def buy_loop(stop_event, **kwargs):
                 logger.logMessage(f"[Buy Loop] Outside of time schedule, waiting {wait_str} until next start")
 
                 wait_interruptible(stop_event, wait_time)
+        logger.logMessage("Buy loop interrupted. Exiting")
     finally:
         _running = False

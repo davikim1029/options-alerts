@@ -2,6 +2,7 @@
 import os
 import sys
 import argparse
+import time as pyTime
 from dotenv import load_dotenv
 from services.utils import yes_no
 from services.apitest import run_api_test
@@ -15,10 +16,12 @@ from services.logging.logger_singleton import getLogger
 from services.core.shutdown_handler import ShutdownManager
 from services.scanner.scanner_entry import start_scanner
 from services.threading.thread_manager import ThreadManager
+from services.utils import is_reload_flag_set,clear_reload_flag
 
 # Disable GPU / MPS fallback
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
 
 
 def get_mode_from_prompt():
@@ -78,55 +81,67 @@ def main():
     args = parser.parse_args()
     
     while True:
-        mode = args.mode.lower() if args.mode else get_mode_from_prompt()
-        args.mode = None #After get it mode the first time, reset for additional iterations
         
-        if mode == "quit":
-            ThreadManager.instance().stop_all()
-            sys.exit(0)
-            break
-
-        debug = False
-
-        # Convert sandbox argument to boolean
-        useSandbox = False
-        if args.sandbox is not None:
-            useSandbox = args.sandbox.lower() in ["true", "1", "yes"] 
-        
-        # --- Mode Handling ---
-        if mode == "scan":
-            # Initialize shutdown manager
-            ShutdownManager.init(error_logger=logger.logMessage)
-            tm = ThreadManager.instance()
-            tm.reset_for_new_scan()
-            start_scanner(debug=debug)
-            tm.wait_for_shutdown()
+        if is_reload_flag_set():
+            clear_reload_flag()
             
-        elif mode == "refresh-token":
-            force_generate_new_token()
-
-        elif mode == "test-api":
-            consumer = EtradeConsumer(sandbox=useSandbox, debug=debug)
-            run_api_test(consumer)
-        
-
-        elif mode == "test-newsapi":
-            consumer = EtradeConsumer(sandbox=useSandbox, debug=debug)
-            tickers = get_active_tickers()
-            cnt = 0
-            for ticker in tickers:
-                try:
-                    headlines = aggregate_headlines_smart(ticker)
-                    cnt += 1
-                    print(headlines)
-                except Exception as e:
-                    print(f"Error occurred for {ticker} | Error: {e}") 
-
-        elif mode == "encrypt-etrade":
-            encryptEtradeKeySecret(useSandbox)
+            #Wait for threading to reset
+            manager = ThreadManager.instance()
+            logger.logMessage("Resetting thread manager")
+            manager.reset_for_new_scan()                      
+            logger.logMessage("Scanner restarting")
+            start_scanner(debug=False)
             
-        else:
-            print("Invalid mode selected.")
+        else:              
+            mode = args.mode.lower() if args.mode else get_mode_from_prompt()
+            args.mode = None #After get it mode the first time, reset for additional iterations
+            
+            if mode == "quit":
+                ThreadManager.instance().stop_all()
+                sys.exit(0)
+                break
+
+            debug = False
+
+            # Convert sandbox argument to boolean
+            useSandbox = False
+            if args.sandbox is not None:
+                useSandbox = args.sandbox.lower() in ["true", "1", "yes"] 
+            
+            # --- Mode Handling ---
+            if mode == "scan":
+                # Initialize shutdown manager
+                ShutdownManager.init(error_logger=logger.logMessage)
+                tm = ThreadManager.instance()
+                tm.reset_for_new_scan()
+                start_scanner(debug=debug)
+                tm.wait_for_shutdown()
+                
+            elif mode == "refresh-token":
+                force_generate_new_token()
+
+            elif mode == "test-api":
+                consumer = EtradeConsumer(sandbox=useSandbox, debug=debug)
+                run_api_test(consumer)
+            
+
+            elif mode == "test-newsapi":
+                consumer = EtradeConsumer(sandbox=useSandbox, debug=debug)
+                tickers = get_active_tickers()
+                cnt = 0
+                for ticker in tickers:
+                    try:
+                        headlines = aggregate_headlines_smart(ticker)
+                        cnt += 1
+                        print(headlines)
+                    except Exception as e:
+                        print(f"Error occurred for {ticker} | Error: {e}") 
+
+            elif mode == "encrypt-etrade":
+                encryptEtradeKeySecret(useSandbox)
+                
+            else:
+                print("Invalid mode selected.")
           
         #force shutdown of threads  
         ThreadManager.instance().stop_all()

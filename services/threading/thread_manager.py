@@ -7,12 +7,13 @@ from pathlib import Path
 from datetime import datetime
 from services.logging.logger_singleton import getLogger
 from services.helpers import snapshot_module
+from services.utils import set_reload_flag
 
 class ThreadWrapper(threading.Thread):
     def __init__(self, name, target_func, kwargs=None, daemon=True,
                  start_time=None, end_time=None, cooldown_seconds=None,
                  reload_files=None, parent=None, update_vars=None,
-                 module_dependencies=None, token_pause_event=None):
+                 module_dependencies=None,stop_event = None, token_pause_event=None):
         super().__init__(name=name, daemon=daemon)
         self._target_func = target_func
         self._kwargs = kwargs or {}
@@ -23,10 +24,16 @@ class ThreadWrapper(threading.Thread):
         self._parent = parent
         self._update_vars = update_vars or {}
         self._module_dependencies = module_dependencies or []
-        self._stop_event = threading.Event()
         self._reload_event = threading.Event()
         self._thread_lock = threading.Lock()
         self._token_pause_event = token_pause_event  # Event to sync on token refresh
+        # Accept a stop_event in kwargs if provided, else fall back to token_pause_event or create one.
+        if kwargs and "stop_event" in kwargs and kwargs["stop_event"] is not None:
+            self._stop_event = kwargs["stop_event"]
+        else:
+            # If the manager passed in a stop_event it will be in kwargs due to add_thread above.
+            # Only create an Event as a last resort (explicitly private thread).
+            self._stop_event = threading.Event()
         self.logger = getLogger()
 
     def run(self):
@@ -46,7 +53,7 @@ class ThreadWrapper(threading.Thread):
                     self._token_pause_event.wait()  # blocks until token is refreshed
 
                 # Run the main function
-                self._target_func(stop_event=self._stop_event, **self._kwargs)
+                self._target_func(**self._kwargs)
 
                 # Handle cooldown
                 if self._cooldown_seconds:
@@ -89,17 +96,18 @@ class ThreadManager:
                 cls._instance = cls(**kwargs)
         return cls._instance
 
-    def __init__(self, consumer=None, caches=None, token_pause_event=None):
+    def __init__(self, consumer=None, caches=None,stop_event = None, token_pause_event=None):
         self._threads = {}
         self._consumer = consumer
         self._caches = caches
         self._watch_dir = None
         self._file_timestamps = {}
         self._watcher_thread = None
-        self._manager_stop_event = threading.Event()
+        self._manager_stop_event = stop_event or threading.Event()
         self._reload_queue = set()
         self._initial_scan_done = False
         self._token_pause_event = token_pause_event
+        self._stop_event = stop_event
         self.logger = getLogger()
 
     # ---------------------------
@@ -109,6 +117,10 @@ class ThreadManager:
                    start_time=None, end_time=None, cooldown_seconds=None,
                    reload_files=None, parent=None, update_vars=None,
                    module_dependencies=None):
+        if kwargs is None:
+            kwargs={}
+        if "stop_event" not in kwargs:
+            kwargs["stop_event"] = self._manager_stop_event
         wrapper = ThreadWrapper(
             name=name,
             target_func=target_func,
@@ -259,6 +271,7 @@ class ThreadManager:
             self._threads[name] = new_wrapper
             new_wrapper.start()
             self.logger.logMessage(f"[Watcher] Reload complete for {name} → kwargs updated: {list(new_kwargs.keys())}")
+            set_reload_flag()
 
     # ---------------------------
     # Wait for shutdown

@@ -20,7 +20,6 @@ def start_scanner(debug=False):
         )
 
         # Start hot-reload watcher
-        manager.start_watcher(Path("services"))
         manager.wait_for_shutdown()
 
     except KeyboardInterrupt:

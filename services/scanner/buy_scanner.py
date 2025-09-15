@@ -129,10 +129,12 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
                     should_buy = False
             except Exception as e:
                 should_buy = False
-                eval_result[(primary.name, "Error", "Result")] = False
-                eval_result[(primary.name, "Error", "Message")] = str(e)
+                eval_result[(primary.name, primary.name, "Result")] = False
+                eval_result[(primary.name, primary.name, "Message")] = str(e)
 
         if not should_buy:
+            eval_result[("SecondaryStrategy","N/A", "Result")] = False
+            eval_result[("SecondaryStrategy","N/A", "Message")] = "Primary Strategy did not pass, secondary not evaluated"
             continue
 
         # Secondary strategies
@@ -145,8 +147,8 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
                 if not success:
                     secondary_failure += f" | {error}"
             except Exception as e:
-                eval_result[(secondary.name, "Error", "Result")] = False
-                eval_result[(secondary.name, "Error", "Message")] = str(e)
+                eval_result[("SecondaryStrategy",secondary.name, "Result")] = False
+                eval_result[("SecondaryStrategy",secondary.name, "Message")] = str(e)
 
         if secondary_failure:
             continue
@@ -298,9 +300,9 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
         logger.logMessage(f"[Buy Scanner] Analysis worker {threading.current_thread().name} exiting")
 
     # Start workers
-    api_threads = [threading.Thread(target=api_worker, args=(stop_event,), name=f"BuyAPIT{i}", daemon=True) for i in range(num_api_threads)]
+    api_threads = [threading.Thread(target=api_worker, args=(stop_event,), name=f"Buy Fetch Thread {i}", daemon=True) for i in range(num_api_threads)]
     for t in api_threads: t.start()
-    analysis_threads = [threading.Thread(target=analysis_worker, args=(stop_event,), name=f"BuyAnalysis{i}", daemon=True) for i in range(num_analysis_threads)]
+    analysis_threads = [threading.Thread(target=analysis_worker, args=(stop_event,), name=f"Buy Analysis Thread {i}", daemon=True) for i in range(num_analysis_threads)]
     for t in analysis_threads: t.start()
 
     # Feed tickers
@@ -308,6 +310,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
         fetch_q.put(t)
 
     # Instead of blocking forever on join, poll with stop_event
+    
     while not stop_event.is_set():
         if fetch_q.unfinished_tasks == 0 and result_q.unfinished_tasks == 0:
             break

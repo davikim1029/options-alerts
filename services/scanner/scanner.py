@@ -135,9 +135,7 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
     # ---------------------------
     # Start threads
     # ---------------------------
-    # API Worker
-    manager.add_thread("HTTP Worker", consumer.apiWorker._worker, daemon=True, reload_files=[])
-
+    
     # Input
     manager.add_thread("Input Listener", input_listener, daemon=True, reload_files=[])
     manager.add_thread("Input Processor", input_processor, daemon=True, reload_files=[])

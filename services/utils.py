@@ -3,7 +3,9 @@ import json
 import os
 import time
 from dataclasses import is_dataclass, fields, is_dataclass
-from typing import get_type_hints, List, Union, TypeVar, Dict, Any, Type
+from typing import get_type_hints, List, Union, TypeVar, Dict, Any, Type, Union
+import tempfile
+from pathlib import Path
 
 
 def load_json_cache(file_path, max_age_seconds=86400):
@@ -105,3 +107,66 @@ def from_dict(cls: Type[T], data: Union[Dict[str, Any], List[Any]]) -> T:
             init_values[field_name] = value
 
     return cls(**init_values)
+
+
+
+DEFAULT_FLAG = Path.cwd() / ".scanner_reload"
+
+def _resolve_path(path: Union[str, Path, None]) -> Path:
+    return Path(path).expanduser() if path else DEFAULT_FLAG
+
+def set_reload_flag(path: Union[str, Path, None] = None, content: str = "1") -> bool:
+    """
+    Create or overwrite the flag file atomically.
+    Returns True on success, False on error.
+    """
+    flag_path = _resolve_path(path)
+    flag_dir = flag_path.parent
+    try:
+        flag_dir.mkdir(parents=True, exist_ok=True)
+        # Create a temp file in the same directory to ensure atomic move/replace works across filesystems.
+        with tempfile.NamedTemporaryFile("w", delete=False, dir=str(flag_dir), prefix=".tmp_flag_") as tf:
+            tf.write(content)
+            tf.flush()
+            os.fsync(tf.fileno())
+            tmpname = tf.name
+        # Atomic replace (works on Windows and Unix)
+        os.replace(tmpname, str(flag_path))
+        return True
+    except Exception as e:
+        # Log or handle as you prefer; return False for caller to react
+        # print("Failed to set reload flag:", e)
+        try:
+            # best-effort cleanup of temp file
+            if 'tmpname' in locals() and os.path.exists(tmpname):
+                os.remove(tmpname)
+        except Exception:
+            pass
+        return False
+
+def clear_reload_flag(path: Union[str, Path, None] = None) -> bool:
+    """
+    Remove the flag file if present.
+    Returns True if removed or didn't exist, False on error.
+    """
+    flag_path = _resolve_path(path)
+    try:
+        if flag_path.exists():
+            flag_path.unlink()
+        return True
+    except Exception:
+        return False
+
+def is_reload_flag_set(path: Union[str, Path, None] = None) -> bool:
+    """
+    Check whether the flag file exists and (optionally) has non-empty content.
+    """
+    flag_path = _resolve_path(path)
+    try:
+        if not flag_path.exists():
+            return False
+        # Optional: check content instead of mere existence
+        content = flag_path.read_text().strip()
+        return bool(content)
+    except Exception:
+        return False

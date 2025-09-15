@@ -5,6 +5,7 @@ from services.logging.logger_singleton import getLogger
 
 def start_scanner(debug=False):
     logger = getLogger()
+        
     try:
         manager = ThreadManager.instance()
 

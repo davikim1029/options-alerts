@@ -159,9 +159,9 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
         processed_counter += 1
         if processed_counter % 5 == 0 and last_ticker_cache:
             last_ticker_cache.add("lastSeen", ticker)
-        if processed_counter % 250 == 0 or processed_counter == remaining_ticker_count:
+        if processed_counter % 250 == 0 or total_iterated == remaining_ticker_count:
             logger.logMessage(
-                f"[Buy Scanner] Thread {threading.current_thread().name} | Processed {processed_counter} / {total_tickers}"
+                f"[Buy Scanner] Thread {threading.current_thread().name} | Processed {processed_counter}. {remaining_ticker_count - total_iterated} Remaining"
             )
 
     strikes_seen = [getattr(o, "strikePrice", 0) for o in options]
@@ -199,6 +199,9 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
     news_cache = getattr(caches, "news", None)
     rate_cache = getattr(caches, "rate", None)
     ticker_cache = getattr(caches, "ticker", None)
+    ignore_cache = getattr(caches, "ignore", None) or IgnoreTickerCache()
+    bought_cache = getattr(caches, "bought", None) or BoughtTickerCache()
+    eval_cache = getattr(caches, "eval", None) or EvalCache()
     last_ticker_cache = getattr(caches, "last_seen", None)
 
     buy_strategies = {
@@ -220,8 +223,17 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
         start_index = 0
 
     remaining_tickers = ticker_keys[start_index:]
+    filtered_tickers = []
+    for ticker in remaining_tickers:
+        if not (
+            ignore_cache.is_cached(ticker)
+            or bought_cache.is_cached(ticker)
+            or eval_cache.is_cached(ticker)
+        ):
+            filtered_tickers.append(ticker)
+        
     global total_tickers, remaining_ticker_count
-    total_tickers = remaining_ticker_count = len(remaining_tickers)
+    total_tickers = remaining_ticker_count = len(filtered_tickers)
 
     logger.logMessage(f"[Buy Scanner] {start_index} tickers processed earlier. {remaining_ticker_count} remaining.")
 
@@ -303,7 +315,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
     for t in analysis_threads: t.start()
 
     # Feed tickers
-    for t in remaining_tickers:
+    for t in filtered_tickers:
         fetch_q.put(t)
 
     # Instead of blocking forever on join, poll with stop_event

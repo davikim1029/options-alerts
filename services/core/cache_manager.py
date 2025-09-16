@@ -182,7 +182,7 @@ class CacheManager:
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         if filename == "":
-            filename = f"{self.name.replace(" ", "_")}_{timestamp}.json"
+            filename = f"{self.name.replace(' ', '_')}_{timestamp}.json"
         if not filename.endswith(".json"):
             filename = f"{filename}.json"
             

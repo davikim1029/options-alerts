@@ -6,7 +6,8 @@ from datetime import datetime, timedelta, timezone
 from threading import RLock
 from services.core.shutdown_handler import ShutdownManager
 from services.logging.logger_singleton import getLogger
-
+import shutil
+from pathlib import Path
 
 class CacheManager:
     """
@@ -172,6 +173,30 @@ class CacheManager:
         if isinstance(value, dict) and any(isinstance(k, tuple) for k in value.keys()):
             return self._convert_nested_tuples(value)
         return value
+    
+    
+    def copy_cache_to_file(self, backup_folder: str = "data/ticker_eval",filename: str = ""):
+        """
+        Make a timestamped copy of a Cache file.
+        """
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if filename == "":
+            filename = f"{self.name.replace(" ", "_")}_{timestamp}.json"
+        if not filename.endswith(".json"):
+            filename = f"{filename}.json"
+            
+        backup_dir = Path(backup_folder)
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
+        src = Path(self.filepath)
+        dst = backup_dir / f"{filename}"
+
+        try:
+            shutil.copy2(src, dst)
+            self.logger.logMessage(f"[{self.name} Backup] Saved backup to {dst}")
+        except Exception as e:
+            self.logger.logMessage(f"[{self.name} Backup] Failed to backup: {e}")
 
 
 # ----------------------------
@@ -262,3 +287,5 @@ class Caches:
     def clear_all(self):
         for cache in self.all_caches():
             cache.clear()
+
+

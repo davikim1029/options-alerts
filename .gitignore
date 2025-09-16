@@ -12,3 +12,4 @@ encryption/etrade_tokens*
 encryption/etrade_tokens_prod.json
 logs/
 /encryption/token_status.json
+data/

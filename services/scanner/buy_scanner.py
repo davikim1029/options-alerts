@@ -342,5 +342,10 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
     #If we've iterated over every ticker,  clear the last_ticker cache 
     if total_iterated == remaining_ticker_count:
         last_ticker_cache.clear()
+    
+    #Save off cache for future analysis
+    eval_cache = getattr(caches, "eval", None)
+    if eval_cache is not None:
+        eval_cache.copy_cache_to_file()
         
     logger.logMessage("[Buy Scanner] Run complete")

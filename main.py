@@ -17,6 +17,8 @@ from services.core.shutdown_handler import ShutdownManager
 from services.scanner.scanner_entry import start_scanner
 from services.threading.thread_manager import ThreadManager
 from services.utils import is_reload_flag_set,clear_reload_flag
+from analytics.analyze_evaluation import analysis_entry
+from performance.performance_comparison import perf_comp_entry
 
 # Disable GPU / MPS fallback
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -31,6 +33,8 @@ def get_mode_from_prompt():
     modes = [
         ("scan", "Run scanner (alerts only)"),
         ("refresh-token", "Refresh the Etrade token"),
+        ("analyze-tickers","Analyze evaluated tickers"),
+        ("performance-compare","Compare performance on evaluated tickers"),
         ("test-api", "Interactive test of E*TRADE API functions"),
         ("encrypt-etrade", "Encrypt Etrade Key And Secret"),
         ("test-newsapi", "Hit a NewsApi API"),
@@ -139,6 +143,12 @@ def main():
 
             elif mode == "encrypt-etrade":
                 encryptEtradeKeySecret(useSandbox)
+            
+            elif mode == "analyze-tickers":
+                analysis_entry()
+                
+            elif mode == "performance-compare":
+                perf_comp_entry()
                 
             else:
                 print("Invalid mode selected.")

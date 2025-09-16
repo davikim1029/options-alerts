@@ -56,7 +56,7 @@ class ApiWorker:
             self._last_call = time.time()
 
 
-    def call_api(self, method: HttpMethod, url: str, timeout: float = 10.0, **kwargs) -> HttpResult:
+    def call_api(self, method: HttpMethod, url: str, timeout: float = 30.0, **kwargs) -> HttpResult:
         """
         Queue an API call and wait for result, but return early if stopped or timeout.
         """

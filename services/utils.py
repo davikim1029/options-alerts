@@ -105,3 +105,19 @@ def from_dict(cls: Type[T], data: Union[Dict[str, Any], List[Any]]) -> T:
             init_values[field_name] = value
 
     return cls(**init_values)
+
+
+def get_project_root_os():
+    current_file_path = os.path.abspath(__file__)
+    # Traverse up until a recognizable project root indicator is found
+    # This example looks for a .git directory or a specific project file
+    while True:
+        parent_dir = os.path.dirname(current_file_path)
+        if not parent_dir or parent_dir == current_file_path:
+            # Reached the filesystem root or a loop
+            return None
+        if os.path.exists(os.path.join(parent_dir, '.git')) or \
+           os.path.exists(os.path.join(parent_dir, 'pyproject.toml')) or \
+           os.path.exists(os.path.join(parent_dir, 'setup.py')):
+            return parent_dir
+        current_file_path = parent_dir

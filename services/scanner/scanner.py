@@ -4,7 +4,6 @@ import sys
 import queue
 from pathlib import Path
 import time as pyTime
-from datetime import datetime
 
 from services.logging.logger_singleton import getLogger
 from services.etrade_consumer import EtradeConsumer
@@ -14,6 +13,7 @@ import services.threading.api_worker as api_worker_mod
 
 from services.scanner import buy_loop as buy_mod
 from services.scanner import sell_loop as sell_mod
+from services.utils import get_project_root_os
 
 
 from services.threading.thread_manager import ThreadManager
@@ -116,9 +116,10 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
 
     manager = ThreadManager.instance(consumer=consumer, caches=caches)
 
-    watch_dir = Path(__file__).parent.resolve()
-    manager.start_watcher(watch_dir)
-    logger.logMessage(f"[Scanner] Watchdog started in: {watch_dir}")
+    #parent_dir = Path(__file__).parent.resolve()
+    root = Path(get_project_root_os()).resolve()
+    manager.start_watcher([root])
+    logger.logMessage(f"[Scanner] Watchdog started in: {root}")
 
     # ---------------------------
     # Shutdown callback
@@ -145,6 +146,10 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
     # Cache autosave loops
     for loop_func, loop_name in caches.all_autosave_loops():
         manager.add_thread(loop_name, loop_func, daemon=True, reload_files=[])
+        
+        
+    #Test registration of non-threaded code:
+    manager.register_module("strategy.buy")
 
     # Trading loops (buy/sell)
     # NOTE: reload triggers an *immediate run* with fresh defaults from loop files

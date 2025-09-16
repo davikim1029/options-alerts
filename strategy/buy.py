@@ -13,6 +13,7 @@ class OptionBuyStrategy(BuyStrategy):
 
         try:
 
+            print("TEST RELOAD")
             # 1. Cost < $200
             if option.ask * 100 > 200:
                 return False, "Cost > $200"

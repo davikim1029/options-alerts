@@ -109,6 +109,7 @@ def from_dict(cls: Type[T], data: Union[Dict[str, Any], List[Any]]) -> T:
     return cls(**init_values)
 
 
+
 DEFAULT_FLAG = Path.cwd() / ".scanner_reload"
 
 def _resolve_path(path: Union[str, Path, None]) -> Path:
@@ -169,7 +170,7 @@ def is_reload_flag_set(path: Union[str, Path, None] = None) -> bool:
         return bool(content)
     except Exception:
         return False
-=======
+
 def get_project_root_os():
     current_file_path = os.path.abspath(__file__)
     # Traverse up until a recognizable project root indicator is found

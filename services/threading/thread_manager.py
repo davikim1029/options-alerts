@@ -362,8 +362,9 @@ class ThreadManager:
                             )
                             self._threads[name] = new_wrapper
                             new_wrapper.start()
-                            found = True
                             set_reload_flag()
+                            found=True
+
                             self.logger.logMessage(
                                 f"[Watcher] Reload complete for {name} → kwargs updated: {list(new_kwargs.keys())}"
                             )

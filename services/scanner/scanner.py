@@ -171,7 +171,8 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
           "services/scanner/buy_scanner.py"
       ],
       module_dependencies=[
-          "services.scanner.buy_scanner"
+          "services.scanner.buy_scanner",
+          "strategy.buy"
       ]
       )
     

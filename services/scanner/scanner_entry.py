@@ -8,7 +8,7 @@ def start_scanner(debug=False):
         
     try:
         manager = ThreadManager.instance()
-
+        
         # Top-level parent thread
         manager.add_thread(
             name="ScannerParent",
@@ -18,7 +18,7 @@ def start_scanner(debug=False):
             reload_files=[str(Path("services/scanner/scanner.py").resolve())],
             parent=None
         )
-
+        
         # Start hot-reload watcher
         manager.wait_for_shutdown()
 

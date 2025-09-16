@@ -204,7 +204,7 @@ class TickerCache(CacheManager):
 
 class EvalCache(CacheManager):
     def __init__(self):
-        super().__init__("Eval Cache", "cache/evaluated.json", ttl_days=1)
+        super().__init__("Eval Cache", "cache/evaluated.json", ttl_minutes=30)
 
 
 class LastTickerCache(CacheManager):

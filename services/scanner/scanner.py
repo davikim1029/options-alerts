@@ -146,8 +146,15 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
         manager.add_thread(loop_name, loop_func, daemon=True, reload_files=[])
         
         
-    #Test registration of non-threaded code:
+    #Registration of non-threaded code:
+    #Make sure to also add as a dependency to a thread associated with these changes
     manager.register_module("strategy.buy")
+    
+    
+    #Note functions called directly by main cannot be reloaded presently since we only are able 
+    # to update references to code that's being restarted through threads
+    #manager.register_module("services.scanner.scanner_entry")
+
 
     # Trading loops (buy/sell)
     # NOTE: reload triggers an *immediate run* with fresh defaults from loop files
@@ -172,7 +179,8 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
       ],
       module_dependencies=[
           "services.scanner.buy_scanner",
-          "strategy.buy"
+          "strategy.buy",
+          "services.scanner.scanner_entry"
       ]
       )
     

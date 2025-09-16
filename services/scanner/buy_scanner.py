@@ -98,12 +98,6 @@ def safe_get_option_chain(consumer, ticker):
 def analyze_ticker(ticker, options, context, buy_strategies, caches, config, debug=False):
     logger = getLogger()
     eval_result, metadata, buy_alerts = {}, {}, []
-    global total_iterated, processed_counter
-    total_iterated += 1
-    
-    with counter_lock:
-        if (total_iterated % 5) == 0:
-            logger.flush()
             
     ignore_cache = getattr(caches, "ignore", None) or IgnoreTickerCache()
     bought_cache = getattr(caches, "bought", None) or BoughtTickerCache()
@@ -161,6 +155,7 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
             logger.logMessage(f"[Buy Scanner] send_alert failed: {e}")
 
     with counter_lock:
+        global processed_counter
         processed_counter += 1
         if processed_counter % 5 == 0 and last_ticker_cache:
             last_ticker_cache.add("lastSeen", ticker)
@@ -289,6 +284,8 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                 result_q.task_done()
                 break
             ticker, options, has_options = item
+            global total_iterated
+            total_iterated += 1
             if has_options and options:
                 try:
                     analyze_ticker(ticker, options, context, buy_strategies, caches, {}, debug)
@@ -342,4 +339,8 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
     except Exception as e:
         logger.logMessage(f"[Buy Scanner] post_process_results error: {e}")
 
+    #If we've iterated over every ticker,  clear the last_ticker cache 
+    if total_iterated == remaining_ticker_count:
+        last_ticker_cache.clear()
+        
     logger.logMessage("[Buy Scanner] Run complete")

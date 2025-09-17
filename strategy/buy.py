@@ -12,111 +12,110 @@ class OptionBuyStrategy(BuyStrategy):
     def should_buy(self, option: OptionContract, context: dict) -> tuple[bool, str]:
         try:
             now = datetime.now(timezone.utc)
-            score = 0
-            reasons = []
 
-            # 1. Cost (prefer < $200, allow up to $350)
+            # ========================
+            # Phase 1: Hard Filters
+            # ========================
             cost = option.ask * 100
-            if cost <= 200:
-                score += 2
-            elif cost <= 350:
-                score += 1
-            else:
-                score -= 2
-                reasons.append("Cost > $350")
+            if cost > 100:
+                return False, f"Hard fail: cost too high (${cost:.2f})"
 
-            # 2. Liquidity (prefer higher volume & OI)
+            if not option.OptionGreeks or option.OptionGreeks.delta is None:
+                return False, "Hard fail: missing Greeks"
+
+            if not option.symbol:
+                return False, "Hard fail: missing symbol"
+
+            # ========================
+            # Phase 2: Scoring System
+            # ========================
+            score = 0
+            breakdown = []
+
+            # --- Liquidity ---
             if option.volume >= 50 and option.openInterest >= 100:
-                score += 2
+                score += 2; breakdown.append(f"Liquidity V={option.volume},OI={option.openInterest} ✅ (+2)")
             elif option.volume >= 10 and option.openInterest >= 50:
-                score += 1
+                score += 1; breakdown.append(f"Liquidity V={option.volume},OI={option.openInterest} ⚠️ (+1)")
             else:
-                score -= 2
-                reasons.append("Low liquidity")
+                score -= 2; breakdown.append(f"Liquidity V={option.volume},OI={option.openInterest} ❌ (-2)")
 
-            # 3. Expiry (prefer 5–30 days, penalize ultra-short)
+            # --- Expiry ---
             if option.expiryDate:
                 days_to_expiry = (option.expiryDate - now).days
                 if 5 <= days_to_expiry <= 30:
-                    score += 2
+                    score += 2; breakdown.append(f"Expiry {days_to_expiry}d ✅ (+2)")
                 elif 3 <= days_to_expiry < 5:
-                    score += 1
+                    score += 1; breakdown.append(f"Expiry {days_to_expiry}d ⚠️ (+1)")
                 else:
-                    score -= 2
-                    reasons.append("Bad expiry window")
+                    score -= 2; breakdown.append(f"Expiry {days_to_expiry}d ❌ (-2)")
 
-            # 4. Strike proximity (prefer near ATM, allow up to 20% OTM)
+            # --- Strike proximity ---
             if option.nearPrice:
                 pct_otm = abs(option.strikePrice - option.nearPrice) / option.nearPrice
                 if pct_otm <= 0.10:
-                    score += 2
+                    score += 2; breakdown.append(f"Strike {pct_otm:.1%} from spot ✅ (+2)")
                 elif pct_otm <= 0.20:
-                    score += 1
+                    score += 1; breakdown.append(f"Strike {pct_otm:.1%} from spot ⚠️ (+1)")
                 else:
-                    score -= 2
-                    reasons.append("Strike too far OTM")
+                    score -= 2; breakdown.append(f"Strike {pct_otm:.1%} ❌ (-2)")
 
-            # 5. Implied Volatility (prefer < 80%, allow up to 120%)
-            if option.OptionGreeks.iv <= 0.80:
-                score += 2
-            elif option.OptionGreeks.iv <= 1.20:
-                score += 1
+            # --- IV ---
+            iv = option.OptionGreeks.iv
+            if iv <= 0.80:
+                score += 2; breakdown.append(f"IV {iv:.0%} ✅ (+2)")
+            elif iv <= 1.20:
+                score += 1; breakdown.append(f"IV {iv:.0%} ⚠️ (+1)")
             else:
-                score -= 2
-                reasons.append("IV too high")
+                score -= 2; breakdown.append(f"IV {iv:.0%} ❌ (-2)")
 
-            # 6. Greeks
+            # --- Greeks ---
             delta = option.OptionGreeks.delta
             gamma = option.OptionGreeks.gamma
             theta = option.OptionGreeks.theta
 
             if 0.3 <= delta <= 0.6:
-                score += 2
+                score += 2; breakdown.append(f"Delta {delta:.2f} ✅ (+2)")
             elif 0.2 <= delta < 0.3 or 0.6 < delta <= 0.7:
-                score += 1
+                score += 1; breakdown.append(f"Delta {delta:.2f} ⚠️ (+1)")
             else:
-                score -= 1
-                reasons.append("Delta weak")
+                score -= 1; breakdown.append(f"Delta {delta:.2f} ❌ (-1)")
 
             if gamma >= 0.02:
-                score += 1
+                score += 1; breakdown.append(f"Gamma {gamma:.3f} ✅ (+1)")
             elif gamma >= 0.01:
-                score += 0  # neutral
+                breakdown.append(f"Gamma {gamma:.3f} ⚠️ (0)")
             else:
-                score -= 1
-                reasons.append("Gamma too low")
+                score -= 1; breakdown.append(f"Gamma {gamma:.3f} ❌ (-1)")
 
             if theta > -0.20:
-                score += 1
+                score += 1; breakdown.append(f"Theta {theta:.3f} ✅ (+1)")
             else:
-                score -= 1
-                reasons.append("Theta decay too high")
+                score -= 1; breakdown.append(f"Theta {theta:.3f} ❌ (-1)")
 
-            # 7. Trend check
-            symbol = option.symbol
-            if symbol:
-                yf_data = yf.Ticker(symbol)
-                hist = yf_data.history(period="1mo")
-                if len(hist) >= 20:
-                    short_term = hist["Close"].rolling(window=5).mean().iloc[-1]
-                    long_term = hist["Close"].rolling(window=20).mean().iloc[-1]
-                    if short_term > long_term * 0.98:
-                        score += 2
-                    else:
-                        score -= 2
-                        reasons.append("Bearish trend")
+            # --- Trend check ---
+            yf_data = yf.Ticker(option.symbol)
+            hist = yf_data.history(period="1mo")
+            if len(hist) >= 20:
+                short_term = hist["Close"].rolling(window=5).mean().iloc[-1]
+                long_term = hist["Close"].rolling(window=20).mean().iloc[-1]
+                if short_term > long_term * 0.98:
+                    score += 2; breakdown.append("Trend bullish ✅ (+2)")
                 else:
-                    reasons.append("Insufficient history")
+                    score -= 2; breakdown.append("Trend bearish ❌ (-2)")
             else:
-                reasons.append("Missing symbol")
-                score -= 2
+                breakdown.append("Trend data insufficient ⚠️ (0)")
 
-            # Decision threshold
-            threshold = 5  # tune this: higher = stricter
+            # ========================
+            # Final Decision
+            # ========================
+            threshold = 5  # tune as needed
+            summary = f"Score={score}, Threshold={threshold} | " + " | ".join(breakdown)
+
             if score >= threshold:
-                return True, ""
+                return True, summary
             else:
-                return False, "; ".join(reasons[:2]) or "Score below threshold"
+                return False, summary
 
         except Exception as e:
             return False, f"[BuyStrategy error] {e}"

@@ -13,6 +13,12 @@ from services.logging.logger_singleton import getLogger
 import transformers
 import threading
 
+
+#### Intentionally not having as a scoring system like with buy.py
+#These are more like binary gates (bullish/bearish, positive/negative). It’s not as natural to assign weights or a score, because:
+#You don’t really want “+1” for bullish ETF and “–1” for bearish; if sector is bearish, you probably just don’t buy.
+#Same with sentiment — a single strong negative headline outweighs three mildly positive ones.
+
 MAX_LEN = 250  # trim text before passing to model
 
 _sentiment_pipeline = None
@@ -134,15 +140,16 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
                 avg_sent = self.average_news_sentiment(headlines)
                 self.add_to_cache(symbol,headlines,avg_sent)
             if avg_sent is not None:
-                if side == "buy" and avg_sent < 0:
-                    error = f"[SectorSentiment:{side}] Bearish sentiment on {symbol}: {avg_sent}"
-                    return False, error
-                if side == "sell" and avg_sent < 0:
-                    # Bearish sentiment supports selling
-                    return True, f"Bearish sentiment on {symbol}: {avg_sent}"
+                if avg_sent < -0.2:
+                    return False, f"SectorSentiment:{side}] Bearish sentiment on {symbol}: {avg_sent:.2f}"
+                elif avg_sent > 0.2:
+                    return True, f"SectorSentiment:{side}] Bullish sentiment on {symbol}: {avg_sent:.2f}"
+                else:
+                    return False, f"SectorSentiment:{side}] Neutral sentiment on {symbol}: {avg_sent:.2f}"
+
 
             # Default: no signal
-            return True if side == "buy" else False, ""
+            return True if side == "buy" else False, "No Signaling"
 
         except Exception as e:
             error = f"[SectorSentiment:{side} error] {e}"

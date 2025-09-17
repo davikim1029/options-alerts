@@ -113,7 +113,7 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
             try:
                 success, error = primary.should_buy(opt, context)
                 eval_result[("PrimaryStrategy", primary.name, "Result")] = success
-                eval_result[("PrimaryStrategy", primary.name, "Message")] = error if not success else "Passed"
+                eval_result[("PrimaryStrategy", primary.name, "Message")] = error
                 if not success:
                     should_buy = False
             except Exception as e:

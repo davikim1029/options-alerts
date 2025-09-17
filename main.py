@@ -35,6 +35,7 @@ def get_mode_from_prompt():
         ("refresh-token", "Refresh the Etrade token"),
         ("analyze-tickers","Analyze evaluated tickers"),
         ("performance-compare","Compare performance on evaluated tickers"),
+        ("reset-tickers", "Reset the ticker caches for full review"),
         ("test-api", "Interactive test of E*TRADE API functions"),
         ("encrypt-etrade", "Encrypt Etrade Key And Secret"),
         ("test-newsapi", "Hit a NewsApi API"),
@@ -150,6 +151,17 @@ def main():
             elif mode == "performance-compare":
                 perf_comp_entry()
                 
+            elif mode == "reset-tickers":
+                files_to_reset = ["evaluated","last_ticker"]
+                for name in files_to_reset:
+                    file_path=f"cache/{name}.json"
+                    if os.path.exists(file_path):
+                        # File exists, proceed with deletion
+                        os.remove(file_path)
+                        print(f"File '{file_path}' deleted successfully.")
+                    else:
+                        print(f"File '{file_path}' does not exist.")
+                            
             else:
                 print("Invalid mode selected.")
           

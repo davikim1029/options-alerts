@@ -97,15 +97,15 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
         return self.__class__.__name__
 
     # === BUY LOGIC ===
-    def should_buy(self, option: OptionContract, context: dict) -> tuple[bool, str]:
+    def should_buy(self, option: OptionContract, context: dict) -> tuple[bool, str,str]:
         return self._evaluate(option, side="buy")
 
     # === SELL LOGIC ===
-    def should_sell(self, position: Position) -> tuple[bool, str]:
+    def should_sell(self, position: Position) -> tuple[bool, str,str]:
         return self._evaluate(position, side="sell")
 
     # === INTERNAL COMMON LOGIC ===
-    def _evaluate(self, securityObj: Union[OptionContract,Position], side: str) -> tuple[bool, str]:
+    def _evaluate(self, securityObj: Union[OptionContract,Position], side: str) -> tuple[bool, str,str]:
         symbol = self.get_symbol(securityObj)
         try:
             # 1. Get sector info
@@ -113,18 +113,18 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
             sector = ticker_info.get("sector")
             if not sector:
                 error = f"[SectorSentiment:{side}] No sector for {symbol}"
-                return False, error
+                return False, error,"N/A"
 
             # 2. Map sector to ETF
             etf_symbol = self.match_sector_to_etf(sector)
             if not etf_symbol:
                 error = f"[SectorSentiment:{side}] No ETF match for {sector}"
-                return False, error
+                return False, error,"N/A"
 
             # 3. ETF trend evaluation
             if side == "buy" and not self.is_sector_in_uptrend(etf_symbol):
                 error = f"[SectorSentiment:{side}] Sector ETF {etf_symbol} is bearish."
-                return False, error
+                return False, error,"N/A"
             elif side == "sell" and self.is_sector_in_uptrend(etf_symbol):
                 # Uptrend suggests hold; bearish suggests sell
                 pass  # we’ll interpret in sell logic
@@ -136,24 +136,24 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
                 headlines = aggregate_headlines_smart(symbol,self._rate_cache)
                 if headlines == []:
                     error = f"[SectorSentiment:{side}] No Headline data found"
-                    return False,error 
+                    return False,error,"N/A"
                 avg_sent = self.average_news_sentiment(headlines)
                 self.add_to_cache(symbol,headlines,avg_sent)
             if avg_sent is not None:
                 if avg_sent < -0.2:
-                    return False, f"SectorSentiment:{side}] Bearish sentiment on {symbol}: {avg_sent:.2f}"
+                    return False, f"SectorSentiment:{side}] Bearish sentiment on {symbol}: {avg_sent:.2f}","N/A"
                 elif avg_sent > 0.2:
-                    return True, f"SectorSentiment:{side}] Bullish sentiment on {symbol}: {avg_sent:.2f}"
+                    return True, f"SectorSentiment:{side}] Bullish sentiment on {symbol}: {avg_sent:.2f}","N/A"
                 else:
-                    return False, f"SectorSentiment:{side}] Neutral sentiment on {symbol}: {avg_sent:.2f}"
+                    return False, f"SectorSentiment:{side}] Neutral sentiment on {symbol}: {avg_sent:.2f}","N/A"
 
 
             # Default: no signal
-            return True if side == "buy" else False, "No Signaling"
+            return True if side == "buy" else False, "No Signaling","N/A"
 
         except Exception as e:
             error = f"[SectorSentiment:{side} error] {e}"
-            return False, error
+            return False, error,"N/A"
 
     # === HELPER METHODS ===
     def match_sector_to_etf(self, sector: str) -> str:

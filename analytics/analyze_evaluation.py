@@ -6,31 +6,33 @@ def analyze_failures(file_path: str):
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
-    
+
     with open(path, "r") as f:
         data = json.load(f)
 
     failure_reasons = []
+    score_counts = Counter()
 
     for ticker, info in data.items():
         try:
-            primary = info["Value"]["PrimaryStrategy"]
-            secondary = info["Value"]["SecondaryStrategy"]
+            primary = info["Value"]["PrimaryStrategy"]["OptionBuyStrategy"]
+            secondary = list(info["Value"]["SecondaryStrategy"].values())[0]
 
-            primary_key, primary_val = next(iter(primary.items()))
-            secondary_key, secondary_val = next(iter(secondary.items()))
+            # --- Primary evaluation ---
+            if not primary["Result"]:
+                if primary.get("Score") != "N/A":
+                    score_counts[primary["Score"]] += 1
+                reason = f"Primary - {primary['Message']}"
+                failure_reasons.append(reason)
 
-            if not primary_val["Result"]:  # Failed primary
-                reason = f"Primary - {primary_val['Message']}"
-            else:  # Passed primary, check secondary
-                if not secondary_val["Result"]:
-                    if secondary_val["Message"] != "Failed Primary Evaluation":
-                        reason = f"Secondary - {secondary_val['Message']}"
-                    else:
-                        continue
-                else:
-                    continue  # Passed both → not a failure
-            failure_reasons.append(reason)
+            # --- Secondary evaluation (only if not suppressed) ---
+            if (
+                not secondary["Result"]
+                and secondary["Message"] != "Primary Strategy did not pass, secondary not evaluated"
+            ):
+                if secondary.get("Score") != "N/A":
+                    score_counts[secondary["Score"]] += 1
+                failure_reasons.append(f"Secondary - {secondary['Message']}")
 
         except Exception as e:
             print(f"Error processing {ticker}: {e}")
@@ -41,23 +43,33 @@ def analyze_failures(file_path: str):
         print("No failures found!")
         return counter
 
-    # Top 3 reasons
+    # --- Top 3 failure reasons ---
     top_3 = counter.most_common(3)
-    print("\nTop 3 Failure Reasons:")
+    print("\n=== Top 3 Failure Reasons ===")
     for idx, (reason, count) in enumerate(top_3, start=1):
         print(f"{idx}. {reason} ({count} tickers)")
 
-    # Breakdown sorted: Primary first, then Secondary
-    print("\nFull Breakdown by Reason:")
-    for reason, count in sorted(counter.items(), key=lambda x: (0 if x[0].startswith("Primary") else 1, -x[1])):
-        print(f"{reason}: {count}")
+    # --- Score distribution ---
+    print("\n=== Score Distribution ===")
+    for score, count in sorted(score_counts.items()):
+        print(f"Score {score}: {count} tickers")
 
     print(f"\nTotal Failed Tickers: {len(failure_reasons)} / {len(data)}")
+
+    # --- Ask if user wants full breakdown ---
+    choice = input("\nWould you like to see the full detailed breakdown? (y/n): ").strip().lower()
+    if choice != "y":
+        return counter
+
+    # --- Full breakdown ---
+    print("\n=== Full Breakdown by Reason ===")
+    for reason, count in sorted(counter.items(), key=lambda x: (0 if x[0].startswith("Primary") else 1, -x[1])):
+        print(f"{reason}: {count}")
 
     return counter
 
 
-def prompt_for_file(default_folder: str = "."):
+def prompt_for_file(default_folder: str = "data/ticker_eval/cleaned") -> str:
     folder = Path(default_folder)
     files = sorted([f for f in folder.glob("*.json") if f.is_file()])
 
@@ -82,6 +94,5 @@ def prompt_for_file(default_folder: str = "."):
 
 
 def analysis_entry():
-    default_folder = "data/ticker_eval"  # change to your cache folder
-    file_path = prompt_for_file(default_folder)
+    file_path = prompt_for_file()
     analyze_failures(file_path)

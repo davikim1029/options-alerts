@@ -9,7 +9,7 @@ class OptionBuyStrategy(BuyStrategy):
     def name(self):
         return self.__class__.__name__
 
-    def should_buy(self, option: OptionContract, context: dict) -> tuple[bool, str]:
+    def should_buy(self, option: OptionContract, context: dict) -> tuple[bool, str,str]:
         try:
             now = datetime.now(timezone.utc)
 
@@ -17,19 +17,19 @@ class OptionBuyStrategy(BuyStrategy):
             # Phase 1: Hard Filters
             # ========================
             cost = option.ask * 100
-            if cost > 100:
-                return False, f"Hard fail: cost too high (${cost:.2f})"
+            if cost > 100: 
+                return False, f"Hard fail: cost too high (${cost:.2f})", "N/A"
             
             if option.expiryDate:
                 days_to_expiry = (option.expiryDate - now).days
                 if days_to_expiry < 5:
-                    return False, f"Hard fail: Expiration too close"
+                    return False, f"Hard fail: Expiration too close","N/A"
 
             if not option.OptionGreeks or option.OptionGreeks.delta is None:
-                return False, "Hard fail: missing Greeks"
+                return False, "Hard fail: missing Greeks","N/A"
 
             if not option.symbol:
-                return False, "Hard fail: missing symbol"
+                return False, "Hard fail: missing symbol","N/A"
 
             # ========================
             # Phase 2: Scoring System
@@ -118,9 +118,9 @@ class OptionBuyStrategy(BuyStrategy):
             summary = f"Score={score}, Threshold={threshold} | " + " | ".join(breakdown)
 
             if score >= threshold:
-                return True, summary
+                return True, summary, score
             else:
-                return False, summary
+                return False, summary, score
 
         except Exception as e:
             return False, f"[BuyStrategy error] {e}"

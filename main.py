@@ -18,6 +18,7 @@ from services.scanner.scanner_entry import start_scanner
 from services.threading.thread_manager import ThreadManager
 from services.utils import is_reload_flag_set,clear_reload_flag
 from analytics.analyze_evaluation import analysis_entry
+from analytics.cleanup_eval import cleanup_entry
 from performance.performance_comparison import perf_comp_entry
 
 # Disable GPU / MPS fallback
@@ -35,6 +36,7 @@ def get_mode_from_prompt():
         ("refresh-token", "Refresh the Etrade token"),
         ("analyze-tickers","Analyze evaluated tickers"),
         ("performance-compare","Compare performance on evaluated tickers"),
+        ("cleanup-eval","Consolidate disparate eval files"),
         ("reset-tickers", "Reset the ticker caches for full review"),
         ("test-api", "Interactive test of E*TRADE API functions"),
         ("encrypt-etrade", "Encrypt Etrade Key And Secret"),
@@ -150,6 +152,9 @@ def main():
                 
             elif mode == "performance-compare":
                 perf_comp_entry()
+                
+            elif mode == "cleanup-eval":
+                cleanup_entry()
                 
             elif mode == "reset-tickers":
                 files_to_reset = ["evaluated","last_ticker"]

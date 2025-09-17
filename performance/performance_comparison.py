@@ -66,7 +66,7 @@ def compare_evals():
         print("\n⚖️ Both methods processed tickers at the same average speed.")
         
         
-def prompt_for_file(default_folder: str = "data/ticker_eval", file_to_exclude: str = ""):
+def prompt_for_file(default_folder: str = "data/ticker_eval/cleaned", file_to_exclude: str = ""):
     folder = Path(default_folder)
     files = sorted([f for f in folder.glob("*.json") if f.is_file()])
 
@@ -75,19 +75,21 @@ def prompt_for_file(default_folder: str = "data/ticker_eval", file_to_exclude: s
         return input("Enter file path: ").strip()
 
     print(f"\nFiles found in {default_folder}:")
-    for idx, f in enumerate(files, start=1):
-        if file_to_exclude != "" and file_to_exclude == f.name:
-            continue
+    
+    
+    display_files = [f for f in files if f.name != file_to_exclude]
+    for idx, f in enumerate(display_files, start=1):
         print(f"{idx}. {f.name}")
-    print(f"{len(files)+1}. Enter custom file path")
+
+    print(f"{len(display_files)+1}. Enter custom file path")
 
     while True:
         choice = input("Select an option: ").strip()
         if choice.isdigit():
             choice = int(choice)
-            if 1 <= choice <= len(files):
-                return str(files[choice - 1])
-            elif choice == len(files) + 1:
+            if 1 <= choice <= len(display_files):
+                return str(display_files[choice - 1])
+            elif choice == len(display_files) + 1:
                 return input("Enter file path: ").strip()
         print("Invalid selection, try again.")
 

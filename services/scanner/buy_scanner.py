@@ -111,33 +111,38 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
         # Primary strategies
         for primary in buy_strategies["Primary"]:
             try:
-                success, error = primary.should_buy(opt, context)
+                success, error,score = primary.should_buy(opt, context)
                 eval_result[("PrimaryStrategy", primary.name, "Result")] = success
                 eval_result[("PrimaryStrategy", primary.name, "Message")] = error
+                eval_result[("PrimaryStrategy", primary.name, "Score")] = score
                 if not success:
                     should_buy = False
             except Exception as e:
                 should_buy = False
                 eval_result[(primary.name, primary.name, "Result")] = False
                 eval_result[(primary.name, primary.name, "Message")] = str(e)
+                eval_result[("PrimaryStrategy", primary.name, "Score")] = "N/A"
 
         if not should_buy:
             eval_result[("SecondaryStrategy","N/A", "Result")] = False
             eval_result[("SecondaryStrategy","N/A", "Message")] = "Primary Strategy did not pass, secondary not evaluated"
+            eval_result[("SecondaryStrategy", "N/A", "Score")] = "N/A"
             continue
 
         # Secondary strategies
         secondary_failure = ""
         for secondary in buy_strategies["Secondary"]:
             try:
-                success, error = secondary.should_buy(opt, context)
+                success, error, score = secondary.should_buy(opt, context)
                 eval_result[("SecondaryStrategy", secondary.name, "Result")] = success
                 eval_result[("SecondaryStrategy", secondary.name, "Message")] = error if not success else "Passed"
+                eval_result[("SecondaryStrategy", secondary.name, "Score")] = score
                 if not success:
                     secondary_failure += f" | {error}"
             except Exception as e:
                 eval_result[("SecondaryStrategy",secondary.name, "Result")] = False
                 eval_result[("SecondaryStrategy",secondary.name, "Message")] = str(e)
+                eval_result[("SecondaryStrategy", secondary.name, "Score")] = "N/A"
 
         if secondary_failure:
             continue

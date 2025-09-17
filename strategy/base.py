@@ -8,7 +8,7 @@ class BuyStrategy(ABC):
         pass
     
     @abstractmethod
-    def should_buy(self, option: OptionContract, context: dict) -> tuple[bool,str]:
+    def should_buy(self, option: OptionContract, context: dict) -> tuple[bool,str,str]:
         pass
 
 class SellStrategy(ABC):
@@ -17,5 +17,5 @@ class SellStrategy(ABC):
         pass
     
     @abstractmethod
-    def should_sell(self, position: Position) -> tuple[bool,str]:
+    def should_sell(self, position: Position) -> tuple[bool,str,str]:
         pass

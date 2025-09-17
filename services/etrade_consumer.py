@@ -82,20 +82,17 @@ class EtradeConsumer:
                     error = json.loads(response.response.text)
                     error_code = error["Error"]["code"]
                     
+                    #Invalid symbol
                     if error_code == 10033:
                         symbol = params.get("symbol",None)
-                        if symbol is not None:
-                            self.logger.logMessage(f"The symbol {symbol} is invalid for api: {url}")
-                        else:
+                        if symbol is None:
                             self.logger.logMessage(f"Received error code: {error_code} but no symbol found")
                     
                     #10031 means no options available for month
                     #10032 means no options available
                     elif error_code in (10031, 10032):
                         symbol = params.get("symbol",None)
-                        if symbol is not None:
-                            self.logger.logMessage(f"No options available for {symbol}")
-                        else:
+                        if symbol is None:
                             self.logger.logMessage(f"Received error code: {error_code} but no symbol found")
                     else:
                         self.logger.logMessage(f"Error: {error}")

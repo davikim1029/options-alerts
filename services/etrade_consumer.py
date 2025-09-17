@@ -13,7 +13,6 @@ from models.option import OptionContract,Product,Quick,OptionGreeks,ProductId
 from services.threading.api_worker import ApiWorker,HttpMethod
 from services.logging.logger_singleton import getLogger
 from services.token_status import TokenStatus
-from services.core.cache_manager import Caches,IgnoreTickerCache
 
 TOKEN_LIFETIME_DAYS = 90
 
@@ -23,12 +22,10 @@ class TokenExpiredError(Exception):
 
 
 class EtradeConsumer:
-    def __init__(self, apiWorker: ApiWorker = None,caches: Caches= None, sandbox=False, debug=False):
+    def __init__(self, apiWorker: ApiWorker = None, sandbox=False, debug=False):
         self.debug = debug
         self.sandbox = sandbox
         self.apiWorker = apiWorker
-        self.caches = caches or {}
-        self.ignore_cache = getattr(caches, "ignore", None) or IgnoreTickerCache()
         self.token_status = TokenStatus()
         self.logger = getLogger()
         envType = "nonProd" if sandbox else "prod"
@@ -89,7 +86,6 @@ class EtradeConsumer:
                         symbol = params.get("symbol",None)
                         if symbol is not None:
                             self.logger.logMessage(f"The symbol {symbol} is invalid for api: {url}")
-                            self.ignore_cache.add(symbol,"Symbol invalid for API")
                         else:
                             self.logger.logMessage(f"Received error code: {error_code} but no symbol found")
                     
@@ -98,7 +94,6 @@ class EtradeConsumer:
                     elif error_code in (10031, 10032):
                         symbol = params.get("symbol",None)
                         if symbol is not None:
-                            self.ignore_cache.add(symbol,"No options available")
                             self.logger.logMessage(f"No options available for {symbol}")
                         else:
                             self.logger.logMessage(f"Received error code: {error_code} but no symbol found")

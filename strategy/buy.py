@@ -1,66 +1,122 @@
 # strategy/buy.py
-from strategy.base import BuyStrategy,SellStrategy
+from strategy.base import BuyStrategy
 from models.option import OptionContract
-from datetime import datetime, timedelta,timezone
+from datetime import datetime, timedelta, timezone
 import yfinance as yf
 
 class OptionBuyStrategy(BuyStrategy):
     @property
     def name(self):
         return self.__class__.__name__
-    
-    def should_buy(self, option: OptionContract, context: dict) -> tuple[bool,str]:
 
+    def should_buy(self, option: OptionContract, context: dict) -> tuple[bool, str]:
         try:
+            now = datetime.now(timezone.utc)
+            score = 0
+            reasons = []
 
-            # 1. Cost < $200
-            if option.ask * 100 > 200:
-                return False, "Cost > $200"
+            # 1. Cost (prefer < $200, allow up to $350)
+            cost = option.ask * 100
+            if cost <= 200:
+                score += 2
+            elif cost <= 350:
+                score += 1
+            else:
+                score -= 2
+                reasons.append("Cost > $350")
 
-            # 2. Liquidity
-            if option.volume < 50 or option.openInterest < 100:
-                return False, "Volume less than 50 or Interest < 100"
+            # 2. Liquidity (prefer higher volume & OI)
+            if option.volume >= 50 and option.openInterest >= 100:
+                score += 2
+            elif option.volume >= 10 and option.openInterest >= 50:
+                score += 1
+            else:
+                score -= 2
+                reasons.append("Low liquidity")
 
-            # 3. Expiry ≥ 7 days
+            # 3. Expiry (prefer 5–30 days, penalize ultra-short)
             if option.expiryDate:
-                now = datetime.now(timezone.utc)
-                if option.expiryDate - now < timedelta(days=7):
-                    return False, "Expiration within 7 days"
+                days_to_expiry = (option.expiryDate - now).days
+                if 5 <= days_to_expiry <= 30:
+                    score += 2
+                elif 3 <= days_to_expiry < 5:
+                    score += 1
+                else:
+                    score -= 2
+                    reasons.append("Bad expiry window")
 
-            # 4. Strike within 10% of current price
-            if option.nearPrice and abs(option.strikePrice - option.nearPrice) / option.nearPrice > 0.10:
-                return False, "Strike Price more than 10% of underlying price"
+            # 4. Strike proximity (prefer near ATM, allow up to 20% OTM)
+            if option.nearPrice:
+                pct_otm = abs(option.strikePrice - option.nearPrice) / option.nearPrice
+                if pct_otm <= 0.10:
+                    score += 2
+                elif pct_otm <= 0.20:
+                    score += 1
+                else:
+                    score -= 2
+                    reasons.append("Strike too far OTM")
 
-            # 5. IV < 80%
-            if option.OptionGreeks.iv > 0.80:
-                return False, "IV > 80"
+            # 5. Implied Volatility (prefer < 80%, allow up to 120%)
+            if option.OptionGreeks.iv <= 0.80:
+                score += 2
+            elif option.OptionGreeks.iv <= 1.20:
+                score += 1
+            else:
+                score -= 2
+                reasons.append("IV too high")
 
-            # 6. Greeks:
-            if not (0.3 <= option.OptionGreeks.delta <= 0.6):
-                return False, "Delta outside of .3 to .6"
-            if option.OptionGreeks.gamma < 0.02:
-                return False, "Gamma < .02"
-            if option.OptionGreeks.theta < -0.1:  # negative = losing premium fast
-                return False, "Theta < -.1"
+            # 6. Greeks
+            delta = option.OptionGreeks.delta
+            gamma = option.OptionGreeks.gamma
+            theta = option.OptionGreeks.theta
 
-            # 7. Market trend confirmation (via yfinance)
+            if 0.3 <= delta <= 0.6:
+                score += 2
+            elif 0.2 <= delta < 0.3 or 0.6 < delta <= 0.7:
+                score += 1
+            else:
+                score -= 1
+                reasons.append("Delta weak")
+
+            if gamma >= 0.02:
+                score += 1
+            elif gamma >= 0.01:
+                score += 0  # neutral
+            else:
+                score -= 1
+                reasons.append("Gamma too low")
+
+            if theta > -0.20:
+                score += 1
+            else:
+                score -= 1
+                reasons.append("Theta decay too high")
+
+            # 7. Trend check
             symbol = option.symbol
-            if not symbol:
-                return False, "No Symbol found"
+            if symbol:
+                yf_data = yf.Ticker(symbol)
+                hist = yf_data.history(period="1mo")
+                if len(hist) >= 20:
+                    short_term = hist["Close"].rolling(window=5).mean().iloc[-1]
+                    long_term = hist["Close"].rolling(window=20).mean().iloc[-1]
+                    if short_term > long_term * 0.98:
+                        score += 2
+                    else:
+                        score -= 2
+                        reasons.append("Bearish trend")
+                else:
+                    reasons.append("Insufficient history")
+            else:
+                reasons.append("Missing symbol")
+                score -= 2
 
-            yf_data = yf.Ticker(symbol)
-            hist = yf_data.history(period="1mo")
-            if len(hist) < 10:
-                return False, "Missing history"
-
-            short_term = hist["Close"].rolling(window=5).mean().iloc[-1]
-            long_term = hist["Close"].rolling(window=20).mean().iloc[-1]
-
-            if short_term < long_term:
-                return False, "Bearish"  # trend is bearish
-
-            return True, ""
+            # Decision threshold
+            threshold = 5  # tune this: higher = stricter
+            if score >= threshold:
+                return True, ""
+            else:
+                return False, "; ".join(reasons[:2]) or "Score below threshold"
 
         except Exception as e:
-            error = f"[BuyStrategy error] {e}"
-            return False,error
+            return False, f"[BuyStrategy error] {e}"

@@ -99,14 +99,9 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
     logger = getLogger()
     eval_result, metadata, buy_alerts = {}, {}, []
             
-    ignore_cache = getattr(caches, "ignore", None) or IgnoreTickerCache()
-    bought_cache = getattr(caches, "bought", None) or BoughtTickerCache()
     last_ticker_cache = getattr(caches, "last_seen", None) or LastTickerCache()
     eval_cache = getattr(caches, "eval", None) or EvalCache()
     ticker_metadata_cache = getattr(caches, "ticker_metadata", None) or TickerMetadata()
-
-    if ignore_cache.is_cached(ticker) or bought_cache.is_cached(ticker) or eval_cache.is_cached(ticker):
-        return None
 
     processed_osi_keys = set()
     for opt in options:

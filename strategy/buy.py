@@ -19,6 +19,11 @@ class OptionBuyStrategy(BuyStrategy):
             cost = option.ask * 100
             if cost > 100:
                 return False, f"Hard fail: cost too high (${cost:.2f})"
+            
+            if option.expiryDate:
+                days_to_expiry = (option.expiryDate - now).days
+                if days_to_expiry < 5:
+                    return False, f"Hard fail: Expiration too close"
 
             if not option.OptionGreeks or option.OptionGreeks.delta is None:
                 return False, "Hard fail: missing Greeks"

@@ -143,7 +143,7 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
             continue
 
         try:
-            msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {getattr(opt, 'ask', 0) * 100}"
+            msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {getattr(opt, 'ask', -1) * 100}"
             send_alert(msg)
             buy_alerts.append(msg)
         except Exception as e:

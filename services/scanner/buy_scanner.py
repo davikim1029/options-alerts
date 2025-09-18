@@ -224,13 +224,23 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
 
     remaining_tickers = ticker_keys[start_index:]
     filtered_tickers = []
+    ignore_skipped = bought_skipped = eval_skipped = 0
+
     for ticker in remaining_tickers:
-        if not (
-            ignore_cache.is_cached(ticker)
-            or bought_cache.is_cached(ticker)
-            or eval_cache.is_cached(ticker)
-        ):
-            filtered_tickers.append(ticker)
+        if ignore_cache.is_cached(ticker):
+            ignore_skipped+=1
+            continue
+        if bought_cache.is_cached(ticker):
+            bought_skipped+=1
+            continue
+        if eval_cache.is_cached(ticker):
+            eval_skipped+=1
+            continue
+        filtered_tickers.append(ticker)
+        
+    logger.logMessage(f"{ignore_skipped} tickers skipped based on Ignore Cache")
+    logger.logMessage(f"{bought_skipped} tickers skipped based on Bought Cache")
+    logger.logMessage(f"{eval_skipped} tickers skipped based on Evaluation Cache")
         
     global total_tickers, remaining_ticker_count
     total_tickers = remaining_ticker_count = len(filtered_tickers)

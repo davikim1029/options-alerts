@@ -55,65 +55,70 @@ class EtradeConsumer:
         if self.apiWorker is not None:
             error = ""
             r = self.apiWorker.call_api(HttpMethod.GET, url, headers=headers, params=params)
-            response = r.response
-            if response.ok:
+            if r is not None:
+                response = r.response
                 if response is not None:
-                    return response,""
-                else:
-                    error = "Warning: no data or raw response available"
-                    self.logger.logMessage(error)
-                    return None,error
-            else:
-                try:
-                    # --- detect HTTP 401 Unauthorized ---
-                    if response.status_code == 401:
-                        self.logger.logMessage("[Auth] Token expired or unauthorized, need to regenerate")
-                        self.token_status.set_status(False)
-                        raise TokenExpiredError("OAuth token expired")
-                    
-                    
-                    if response.status_code == 400:
-                        error = "Received a 400 error, no options available"
-                        return None,error
-                    
-                    # --- handle timeout / worker errors first ---
-                    if hasattr(response, "error"):
-                        if response.error and "Timeout" in response.error:
-                            error = f"API call timed out: {response.error}"
-                            self.logger.logMessage(error)
-                            return None, error
-
-                        if response is None:
-                            error = f"API call failed with no response object: {response.error}"
-                            self.logger.logMessage(error)
-                            return None, error 
-                        
-                    try:
-                        error = json.loads(response.text)
-                        error_code = error["Error"]["code"]
-                        
-                        #Invalid symbol
-                        if error_code == 10033:
-                            symbol = params.get("symbol",None)
-                            if symbol is None:
-                                self.logger.logMessage(f"Received error code: {error_code} but no symbol found")
-                        
-                        #10031 means no options available for month
-                        #10032 means no options available
-                        elif error_code in (10031, 10032):
-                            symbol = params.get("symbol",None)
-                            if symbol is None:
-                                self.logger.logMessage(f"Received error code: {error_code} but no symbol found")
+                    if response.ok:
+                        if response is not None:
+                            return response,""
                         else:
-                            self.logger.logMessage(f"Error: {error}")
-                    except Exception as e:
-                        self.logger.logMessage(f"Unexpected Error: {e} in response {json.dumps(response, indent=2, default=str)} ")
-                
-                        
-                except TokenExpiredError as e:
-                    raise
-                except Exception as e:
-                    self.logger.logMessage(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")
+                            error = "Warning: no data or raw response available"
+                            self.logger.logMessage(error)
+                            return None,error
+                    else:
+                        try:
+                            # --- detect HTTP 401 Unauthorized ---
+                            if response.status_code == 401:
+                                self.logger.logMessage("[Auth] Token expired or unauthorized, need to regenerate")
+                                self.token_status.set_status(False)
+                                raise TokenExpiredError("OAuth token expired")
+                            
+                            
+                            if response.status_code == 400:
+                                error = "Received a 400 error, no options available"
+                                return None,error
+                            
+                            # --- handle timeout / worker errors first ---
+                            if hasattr(response, "error"):
+                                if response.error and "Timeout" in response.error:
+                                    error = f"API call timed out: {response.error}"
+                                    self.logger.logMessage(error)
+                                    return None, error
+
+                                if response is None:
+                                    error = f"API call failed with no response object: {response.error}"
+                                    self.logger.logMessage(error)
+                                    return None, error 
+                                
+                            try:
+                                error = json.loads(response.text)
+                                error_code = error["Error"]["code"]
+                                
+                                #Invalid symbol
+                                if error_code == 10033:
+                                    symbol = params.get("symbol",None)
+                                    if symbol is None:
+                                        self.logger.logMessage(f"Received error code: {error_code} but no symbol found")
+                                
+                                #10031 means no options available for month
+                                #10032 means no options available
+                                elif error_code in (10031, 10032):
+                                    symbol = params.get("symbol",None)
+                                    if symbol is None:
+                                        self.logger.logMessage(f"Received error code: {error_code} but no symbol found")
+                                else:
+                                    self.logger.logMessage(f"Error: {error}")
+                            except Exception as e:
+                                self.logger.logMessage(f"Unexpected Error: {e} in response {json.dumps(response, indent=2, default=str)} ")
+                                
+                        except TokenExpiredError as e:
+                            raise
+                        except Exception as e:
+                            self.logger.logMessage(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")
+                else:
+                    self.logger.logMessage(f"Response missing response attribute for {url}")     
+            else:
+                self.logger.logMessage(f"No response received for {url}")
         else:
             try:
                 return self.session.get(url, headers=headers, params=params),""

@@ -9,21 +9,14 @@ from urllib.parse import urlencode
 from models.generated.Account import Account, PortfolioAccount
 from models.generated.Position import Position
 from models.option import OptionContract,Product,Quick,OptionGreeks,ProductId
-from services.token_status import TokenStatus
 
 TOKEN_LIFETIME_DAYS = 90
-
-class TokenExpiredError(Exception):
-    """Raised when OAuth token is invalid or expired."""
-    pass
 
 
 class EtradeConsumerLite:
     def __init__(self, sandbox=False, debug=False):
         self.debug = debug
-        self.sandbox = sandbox
-        self.token_status = TokenStatus()
-        
+        self.sandbox = sandbox        
         envType = "nonProd" if sandbox else "prod"
 
         self.consumer_key, self.consumer_secret = self.load_encrypted_etrade_keysecret(sandbox)
@@ -105,11 +98,9 @@ class EtradeConsumerLite:
         """
         try:
             if self._check_session_valid():
-                self.token_status.set_status(True)
                 return True
             return self.generate_token()
         except Exception as e:
-            self.token_status.set_status(False)
             print(f"[Token Validation] Exception: {e}")
             return False
 
@@ -190,10 +181,8 @@ class EtradeConsumerLite:
                     self.save_tokens()
 
                     print("[Auth] Access token successfully obtained and saved")
-                    self.token_status.set_status(True)
                     return True
                 except Exception as e:
-                    self.token_status.set_status(False)
                     print(f"[Auth] Invalid PIN or error during exchange: {e}")
                     print("[Auth] Try again, type 'restart' for new URL, or 'exit'.")
                     continue  # loop again for new PIN
@@ -210,7 +199,6 @@ class EtradeConsumerLite:
                 "oauth_token_secret": self.oauth_token_secret,
                 "created_at": int(pyTime.time())  # store as epoch
             }, f)
-        self.token_status.set_status(True)
 
     # ------------------- HELPERS -------------------
     def get_headers(self):
@@ -276,60 +264,7 @@ class EtradeConsumerLite:
         local_tz = datetime.now().astimezone().tzinfo
 
         try:
-            chain_data = r.json().get("OptionChainResponse", {})
-            near_price = chain_data.get("nearPrice")
-            expiry_dict = chain_data.get("SelectedED", {})
-            expiry_date = datetime(
-                year=expiry_dict.get("year", 1970),
-                month=expiry_dict.get("month", 1),
-                day=expiry_dict.get("day", 1),
-                tzinfo=local_tz
-            )
-            results = []
-            for optionPair in chain_data.get("OptionPair", []):
-                call = optionPair.get("Call", {})
-                call["expiryDate"] = expiry_date
-                call["nearPrice"] = near_price
-                call_greeks = call.get("OptionGreeks", {})
-                option_greeks = OptionGreeks(**call_greeks)
-
-                product = Product(
-                    symbol=call.get("symbol"),
-                    securityType=call.get("optionType"),  # or "CALL"/"PUT"
-                    callPut="CALL" if call.get("optionType") == "CALL" else "PUT",
-                    strikePrice=call.get("strikePrice"),
-                    productId=ProductId(symbol=call.get("symbol"), typeCode=call.get("optionType")),
-                    expiryDay=expiry_date.day,
-                    expiryMonth=expiry_date.month,
-                    expiryYear=expiry_date.year
-                )
-
-                quick = Quick(
-                    lastTrade=call.get("lastPrice"),
-                    lastTradeTime=None,
-                    change=None,
-                    changePct=None,
-                    volume=call.get("volume"),
-                    quoteStatus=None
-                )
-
-                # Only pass keys that exist in OptionContract
-                option_fields = {k: call[k] for k in [
-                    "symbol", "optionType", "strikePrice", "displaySymbol", "osiKey",
-                    "bid", "ask", "bidSize", "askSize", "inTheMoney", "volume",
-                    "openInterest", "netChange", "lastPrice", "quoteDetail",
-                    "optionCategory", "timeStamp", "adjustedFlag","expiryDate","nearPrice"
-                ] if k in call}
-
-                option = OptionContract(
-                    **option_fields,
-                    OptionGreeks=option_greeks,
-                    quick=quick,
-                    product=product
-                )
-
-                results.append(option)
-            return results
+            return r.json()
         except Exception as e:
             print(f"[ERROR] Failed to parse option chain for {symbol}: {e}")
             return None

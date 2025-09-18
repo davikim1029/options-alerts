@@ -60,7 +60,7 @@ class EtradeConsumer:
                 if response is not None:
                     if response.ok:
                         if response is not None:
-                            return response,""
+                            return response,response.text
                         else:
                             error = "Warning: no data or raw response available"
                             self.logger.logMessage(error)

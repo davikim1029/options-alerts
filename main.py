@@ -19,7 +19,7 @@ from services.threading.thread_manager import ThreadManager
 from services.utils import is_reload_flag_set,clear_reload_flag
 from analytics.analyze_evaluation import analysis_entry
 from analytics.cleanup_eval import cleanup_entry
-from analytics .review_ignore_cache import review_ignore
+from analytics.review_ignore_cache import review_ignore
 from performance.performance_comparison import perf_comp_entry
 
 # Disable GPU / MPS fallback

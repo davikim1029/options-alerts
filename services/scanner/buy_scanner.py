@@ -280,8 +280,8 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                 break
             with api_semaphore:
                 try:
-                    options, has_options = consumer.get_option_chain(ticker)
-                    result_q.put((ticker, options, bool(has_options)))
+                    options, has_options,error = consumer.get_option_chain(ticker)
+                    result_q.put((ticker, options, bool(has_options),error))
                 except TokenExpiredError:
                     logger.logMessage("[Buy Scanner] TokenExpiredError in api_worker.")
                     send_alert("E*TRADE token expired. Please re-authenticate.")
@@ -290,7 +290,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                     fetch_q.put(ticker)
                 except Exception as e:
                     logger.logMessage(f"[Buy Scanner] Error fetching {ticker}: {e}")
-                    result_q.put((ticker, None, False))
+                    result_q.put((ticker, None, False, e))
                 finally:
                     fetch_q.task_done()
         logger.logMessage(f"[Buy Scanner] API worker {threading.current_thread().name} exiting")
@@ -305,7 +305,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
             if item is None:
                 result_q.task_done()
                 break
-            ticker, options, has_options = item
+            ticker, options, has_options,error = item
             global total_iterated
             total_iterated += 1
             if has_options and options:
@@ -314,7 +314,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                 except Exception as e:
                     logger.logMessage(f"[Buy Scanner] analyze_ticker {ticker} error: {e}")
             else:
-                (getattr(caches, "ignore", None) or IgnoreTickerCache()).add(ticker, "")
+                (getattr(caches, "ignore", None) or IgnoreTickerCache()).add(ticker, error)
             result_q.task_done()
         logger.logMessage(f"[Buy Scanner] Analysis worker {threading.current_thread().name} exiting")
 

@@ -146,7 +146,7 @@ class ApiWorker:
                     raise ValueError(f"Unsupported HTTP method: {method}")
     
                 r.raise_for_status()
-                result_obj = HttpResult(ok=True, status_code=r.status_code, data=r, response=r)
+                result_obj = HttpResult(ok=True, status_code=r.status_code, response=r)
     
                 if is_async and callback:
                     try:

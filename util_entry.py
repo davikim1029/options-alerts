@@ -8,6 +8,7 @@ from analytics.analyze_evaluation import analysis_entry
 from analytics.cleanup_eval import cleanup_entry
 from analytics.review_ignore_cache import review_ignore
 from performance.performance_comparison import perf_comp_entry
+from testing.get_ticker_opts import get_ticker_opts_entry
 
 # Disable GPU / MPS fallback
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -24,6 +25,7 @@ def get_mode_from_prompt():
         ("analyze-tickers","Analyze evaluated tickers"),
         ("performance-compare","Compare performance on evaluated tickers"),
         ("cleanup-eval","Consolidate disparate eval files"),
+        ("get-ticker-opts", "Get option results for a given ticker"),
         ("reset-tickers", "Reset the ticker caches for full review"),
         ("encrypt-etrade", "Encrypt Etrade Key And Secret"),
         ("review-ignore","Review Ignored Ticker Cache"),
@@ -61,47 +63,49 @@ def main():
     load_dotenv()
     
     while True:
-          mode = get_mode_from_prompt()
-          
-          if mode == "quit":
-              sys.exit(0)
-              break
+        mode = get_mode_from_prompt()
+        if mode == "quit":
+            sys.exit(0)
+            break
 
 
-          # --- Mode Handling ---
+        # --- Mode Handling ---
               
-          elif mode == "refresh-token":
-              force_generate_new_token()
+        elif mode == "refresh-token":
+            force_generate_new_token()
 
           
-          elif mode == "encrypt-etrade":
-              encryptEtradeKeySecret(False)
-          
-          elif mode == "analyze-tickers":
-              analysis_entry()
-              
-          elif mode == "performance-compare":
-              perf_comp_entry()
-              
-          elif mode == "cleanup-eval":
-              cleanup_entry()
-              
-          elif mode == "review-ignore":
-              review_ignore()
-              
-          elif mode == "reset-tickers":
-              files_to_reset = ["evaluated","last_ticker"]
-              for name in files_to_reset:
-                  file_path=f"cache/{name}.json"
-                  if os.path.exists(file_path):
-                      # File exists, proceed with deletion
-                      os.remove(file_path)
-                      print(f"File '{file_path}' deleted successfully.")
-                  else:
-                      print(f"File '{file_path}' does not exist.")
-                          
-          else:
-              print("Invalid mode selected.")
+        elif mode == "encrypt-etrade":
+            encryptEtradeKeySecret(False)
+
+        elif mode == "analyze-tickers":
+            analysis_entry()
+            
+        elif mode == "performance-compare":
+            perf_comp_entry()
+            
+        elif mode == "cleanup-eval":
+            cleanup_entry()
+            
+        elif mode == "review-ignore":
+            review_ignore()
+
+        elif mode == "get-ticker-opts":
+            get_ticker_opts_entry()
+            
+        elif mode == "reset-tickers":
+            files_to_reset = ["evaluated","last_ticker"]
+            for name in files_to_reset:
+                file_path=f"cache/{name}.json"
+                if os.path.exists(file_path):
+                    # File exists, proceed with deletion
+                    os.remove(file_path)
+                    print(f"File '{file_path}' deleted successfully.")
+                else:
+                    print(f"File '{file_path}' does not exist.")
+                        
+        else:
+            print("Invalid mode selected.")
         
 
 if __name__ == "__main__":

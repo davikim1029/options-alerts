@@ -21,6 +21,8 @@ from analytics.analyze_evaluation import analysis_entry
 from analytics.cleanup_eval import cleanup_entry
 from analytics.review_ignore_cache import review_ignore
 from performance.performance_comparison import perf_comp_entry
+from testing.get_ticker_opts import get_ticker_opts_entry
+
 
 # Disable GPU / MPS fallback
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -42,6 +44,7 @@ def get_mode_from_prompt():
         ("reset-tickers", "Reset the ticker caches for full review"),
         ("test-api", "Interactive test of E*TRADE API functions"),
         ("encrypt-etrade", "Encrypt Etrade Key And Secret"),
+        ("get-ticker-opts", "Get option results for a given ticker"),
         ("test-newsapi", "Hit a NewsApi API"),
         ("quit", "Exit program")
     ]
@@ -160,6 +163,9 @@ def main():
                 
             elif mode == "review-ignore":
                 review_ignore()
+                
+            elif mode == "get-ticker-opts":
+                get_ticker_opts_entry()
                     
             elif mode == "reset-tickers":
                 files_to_reset = ["evaluated","last_ticker"]

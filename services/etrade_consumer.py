@@ -200,7 +200,7 @@ class EtradeConsumer:
 
         # Check token age
         local_tz = datetime.now().astimezone().tzinfo
-        token_age_days = (datetime.now.astimezone() - datetime.fromtimestamp(created_at, tz=local_tz)).days
+        token_age_days = (datetime.now().astimezone() - datetime.fromtimestamp(created_at, tz=local_tz)).days
         if (not self.oauth_token or token_age_days >= TOKEN_LIFETIME_DAYS) and generate_new_token:
             self.logger.logMessage(f"Token missing or expired (age={token_age_days}d). Generating new token...")
             if not self.generate_token():

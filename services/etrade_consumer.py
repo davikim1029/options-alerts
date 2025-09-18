@@ -74,7 +74,7 @@ class EtradeConsumer:
                         return None
                     
                     # --- detect HTTP 401 Unauthorized ---
-                    if response.status_code == 401:
+                    if response.response.status_code == 401:
                         self.logger.logMessage("[Auth] Token expired or unauthorized, need to regenerate")
                         self.token_status.set_status(False)
                         raise TokenExpiredError("OAuth token expired")

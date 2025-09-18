@@ -1,6 +1,7 @@
 import json
 from collections import Counter
 from pathlib import Path
+from datetime import datetime
 
 def analyze_failures(file_path: str):
     path = Path(file_path)
@@ -17,32 +18,39 @@ def analyze_failures(file_path: str):
         try:
             # --- Handle duplicates (list of evals) ---
             if isinstance(info, list):
-                # Pick the one with the latest Timestamp
-                latest_eval = max(info, key=lambda e: e.get("Timestamp", ""))
-                value = latest_eval["Value"]
-            else:
+                # Pick the latest evaluation based on timestamp
+                latest_eval = max(
+                    info,
+                    key=lambda e: datetime.fromisoformat(e.get("Timestamp", "1970-01-01T00:00:00"))
+                )
+                value = latest_eval.get("Value", {})
+            elif isinstance(info, dict):
                 # Old format (single dict)
-                value = info["Value"]
+                value = info.get("Value", {})
+            else:
+                continue  # Skip unexpected formats
 
-            primary = value["PrimaryStrategy"]["OptionBuyStrategy"]
-            secondary = list(value["SecondaryStrategy"].values())[0]
+            primary = value.get("PrimaryStrategy", {}).get("OptionBuyStrategy", {})
+            secondary = list(value.get("SecondaryStrategy", {}).values())[0] if value.get("SecondaryStrategy") else {}
 
             # --- Primary evaluation ---
-            if not primary["Result"]:
+            if not primary.get("Result", True):
                 score = primary.get("Score", "N/A")
-                score_counts[score] += 1
-                reason = f"Primary - {primary['Message']}"
+                if score != "N/A":
+                    score_counts[score] += 1
+                reason = f"Primary - {primary.get('Message', 'No message')}"
                 failure_reasons.append(reason)
 
             # --- Secondary evaluation (only if not suppressed) ---
             if (
-                not secondary["Result"]
-                and secondary["Message"] != "Primary Strategy did not pass, secondary not evaluated"
+                secondary
+                and not secondary.get("Result", True)
+                and secondary.get("Message") != "Primary Strategy did not pass, secondary not evaluated"
             ):
                 score = secondary.get("Score", "N/A")
-                if score != "N/A":  # only count scored failures
+                if score != "N/A":
                     score_counts[score] += 1
-                failure_reasons.append(f"Secondary - {secondary['Message']}")
+                failure_reasons.append(f"Secondary - {secondary.get('Message', 'No message')}")
 
         except Exception as e:
             print(f"Error processing {ticker}: {e}")
@@ -91,6 +99,7 @@ def prompt_for_file(default_folder: str = "data/ticker_eval/cleaned") -> str:
     for idx, f in enumerate(files, start=1):
         print(f"{idx}. {f.name}")
     print(f"{len(files)+1}. Enter custom file path")
+    print(f"{len(files)+2}. Exit")
 
     while True:
         choice = input("Select an option: ").strip()
@@ -100,9 +109,24 @@ def prompt_for_file(default_folder: str = "data/ticker_eval/cleaned") -> str:
                 return str(files[choice - 1])
             elif choice == len(files) + 1:
                 return input("Enter file path: ").strip()
+            elif choice == len(files) + 2:
+                return "exit"
         print("Invalid selection, try again.")
 
 
 def analysis_entry():
-    file_path = prompt_for_file()
+    found = False
+    while not found:
+        try:
+            file_path = prompt_for_file()
+            if (file_path.lower() == "exit"):
+                print("Exiting...")
+                return
+            path = Path(file_path)
+            if not path.exists() or not path.is_file():
+                raise FileNotFoundError(f"File not found: {file_path}")
+        except Exception as e:
+            print(e)
+            continue
+        found = True
     analyze_failures(file_path)

@@ -43,7 +43,7 @@ def merge_eval_files(folder: Path):
             eval_data["original_file"] = f.name
             daily_data[day][ticker].append(eval_data)
 
-        # ✅ Delete the incremental file after merging
+        # Delete the incremental file after merging
         try:
             f.unlink()
             print(f"Deleted {f.name}")
@@ -58,7 +58,7 @@ def save_cleaned_daily_data(daily_data: dict, output_folder: Path):
     for day, tickers in daily_data.items():
         out_file = output_folder / f"eval_cleaned_{day}.json"
 
-        # ✅ If cleaned file already exists, load and append
+        # Load existing file if present
         if out_file.exists():
             try:
                 with open(out_file, "r") as f:
@@ -68,6 +68,11 @@ def save_cleaned_daily_data(daily_data: dict, output_folder: Path):
                 existing_data = {}
         else:
             existing_data = {}
+
+        # Ensure all existing entries are lists to allow appending
+        for t, val in existing_data.items():
+            if isinstance(val, dict):
+                existing_data[t] = [val]
 
         # Append new evals
         for ticker, evals in tickers.items():
@@ -91,6 +96,3 @@ def cleanup_entry():
     output_folder = folder / "cleaned"
     save_cleaned_daily_data(daily_data, output_folder)
     print("\nCleanup complete!")
-
-if __name__ == "__main__":
-    cleanup_entry()

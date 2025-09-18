@@ -175,7 +175,7 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
         "max_strike": max(strikes_seen, default=None),
         "expirations": expirations_seen,
         "seen_options": list(processed_osi_keys),
-        "last_checked": datetime.now(timezone.utc).isoformat(),
+        "last_checked": datetime.now().astimezone().isoformat(),
     }
 
     if eval_cache:

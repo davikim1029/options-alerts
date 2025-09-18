@@ -199,7 +199,8 @@ class EtradeConsumer:
             )
 
         # Check token age
-        token_age_days = (datetime.now(timezone.utc) - datetime.fromtimestamp(created_at, tz=timezone.utc)).days
+        local_tz = datetime.now().astimezone().tzinfo
+        token_age_days = (datetime.now.astimezone() - datetime.fromtimestamp(created_at, tz=local_tz)).days
         if (not self.oauth_token or token_age_days >= TOKEN_LIFETIME_DAYS) and generate_new_token:
             self.logger.logMessage(f"Token missing or expired (age={token_age_days}d). Generating new token...")
             if not self.generate_token():
@@ -393,6 +394,8 @@ class EtradeConsumer:
         if r is None:
             return None,False
 
+        local_tz = datetime.now().astimezone().tzinfo
+
         try:
             chain_data = r.json().get("OptionChainResponse", {})
             near_price = chain_data.get("nearPrice")
@@ -401,7 +404,7 @@ class EtradeConsumer:
                 year=expiry_dict.get("year", 1970),
                 month=expiry_dict.get("month", 1),
                 day=expiry_dict.get("day", 1),
-                tzinfo=timezone.utc
+                tzinfo=local_tz
             )
             results = []
             for optionPair in chain_data.get("OptionPair", []):

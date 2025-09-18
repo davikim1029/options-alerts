@@ -34,7 +34,7 @@ def sell_loop(stop_event, **kwargs):
             cooldown   = kwargs.get("cooldown_seconds") or DEFAULT_COOLDOWN_SECONDS
             force_first_run = kwargs.get("force_first_run") or False
 
-            now = datetime.now().time()
+            now = datetime.now().astimezone().time()
             if start_time <= now <= end_time or force_first_run:
                 try:
                     run_sell_scan(stop_event=stop_event, consumer=consumer, caches=caches,seconds_to_wait=cooldown, debug=debug)
@@ -53,7 +53,7 @@ def sell_loop(stop_event, **kwargs):
 
                 wait_interruptible(stop_event, cooldown)
             else:
-                now_dt = datetime.now()
+                now_dt = datetime.now().astimezone()
                 today_start = datetime.combine(now_dt.date(), start_time)
 
                 if now_dt.time() < start_time:

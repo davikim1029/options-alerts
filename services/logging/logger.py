@@ -6,7 +6,7 @@ from datetime import datetime
 class Logger:
     def __init__(self, log_dir="logs", prefix="log"):
         os.makedirs(log_dir, exist_ok=True)
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now().astimezone().strftime("%Y-%m-%d")
         log_file = os.path.join(log_dir, f"{prefix}_{today}.log")
 
         self.logger = logging.getLogger("DailyLogger")

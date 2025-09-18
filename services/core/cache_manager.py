@@ -117,7 +117,7 @@ class CacheManager:
             days = 30  # default 30 days
 
         ttl = timedelta(days=days, hours=hours, minutes=minutes)
-        return datetime.now(timezone.utc) - timestamp > ttl
+        return datetime.now().astimezone() - timestamp > ttl
 
     # ----------------------------
     # Public Cache Methods
@@ -126,7 +126,7 @@ class CacheManager:
         with self._lock:
             self._cache[key] = {
                 "Value": self._convert_nested_tuples(value),
-                "Timestamp": datetime.now(timezone.utc)
+                "Timestamp": datetime.now().astimezone()
             }
 
     def get(self, key):
@@ -180,7 +180,7 @@ class CacheManager:
         Make a timestamped copy of a Cache file.
         """
         
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
         if filename == "":
             filename = f"{self.name.replace(' ', '_')}_{timestamp}.json"
         if not filename.endswith(".json"):

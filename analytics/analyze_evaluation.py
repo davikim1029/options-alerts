@@ -15,13 +15,22 @@ def analyze_failures(file_path: str):
 
     for ticker, info in data.items():
         try:
-            primary = info["Value"]["PrimaryStrategy"]["OptionBuyStrategy"]
-            secondary = list(info["Value"]["SecondaryStrategy"].values())[0]
+            # --- Handle duplicates (list of evals) ---
+            if isinstance(info, list):
+                # Pick the one with the latest Timestamp
+                latest_eval = max(info, key=lambda e: e.get("Timestamp", ""))
+                value = latest_eval["Value"]
+            else:
+                # Old format (single dict)
+                value = info["Value"]
+
+            primary = value["PrimaryStrategy"]["OptionBuyStrategy"]
+            secondary = list(value["SecondaryStrategy"].values())[0]
 
             # --- Primary evaluation ---
             if not primary["Result"]:
-                if primary.get("Score") != "N/A":
-                    score_counts[primary["Score"]] += 1
+                score = primary.get("Score", "N/A")
+                score_counts[score] += 1
                 reason = f"Primary - {primary['Message']}"
                 failure_reasons.append(reason)
 
@@ -30,8 +39,9 @@ def analyze_failures(file_path: str):
                 not secondary["Result"]
                 and secondary["Message"] != "Primary Strategy did not pass, secondary not evaluated"
             ):
-                if secondary.get("Score") != "N/A":
-                    score_counts[secondary["Score"]] += 1
+                score = secondary.get("Score", "N/A")
+                if score != "N/A":  # only count scored failures
+                    score_counts[score] += 1
                 failure_reasons.append(f"Secondary - {secondary['Message']}")
 
         except Exception as e:

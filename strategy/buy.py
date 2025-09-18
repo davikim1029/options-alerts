@@ -11,19 +11,21 @@ class OptionBuyStrategy(BuyStrategy):
 
     def should_buy(self, option: OptionContract, context: dict) -> tuple[bool, str,str]:
         try:
-            now = datetime.now(timezone.utc)
+            now = datetime.now().astimezone()
 
             # ========================
             # Phase 1: Hard Filters
             # ========================
             cost = option.ask * 100
-            if cost > 100: 
-                return False, f"Hard fail: cost too high (${cost:.2f})", "N/A"
+            cost_threshold = 200
+            if cost > cost_threshold: 
+                return False, f"Hard fail: cost too high (${cost:.2f}). Threshold: ${cost_threshold}", "N/A"
             
+            min_expiry = 5
             if option.expiryDate:
                 days_to_expiry = (option.expiryDate - now).days
-                if days_to_expiry < 5:
-                    return False, f"Hard fail: Expiration too close","N/A"
+                if days_to_expiry < min_expiry:
+                    return False, f"Hard fail: Too close to expiration. Min Expiry days: {min_expiry}","N/A"
 
             if not option.OptionGreeks or option.OptionGreeks.delta is None:
                 return False, "Hard fail: missing Greeks","N/A"

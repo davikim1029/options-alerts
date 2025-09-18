@@ -41,7 +41,7 @@ class ThreadWrapper(threading.Thread):
             try:
                 # Wait until start_time if defined
                 if self._start_time:
-                    now = datetime.now().time()
+                    now = datetime.now().astimezone().time()
                     start_seconds = self._start_time.hour*3600 + self._start_time.minute*60 + self._start_time.second
                     now_seconds = now.hour*3600 + now.minute*60 + now.second
                     if now_seconds < start_seconds:
@@ -66,7 +66,7 @@ class ThreadWrapper(threading.Thread):
 
                 # Handle end_time
                 if self._end_time:
-                    now = datetime.now().time()
+                    now = datetime.now().astimezone().time()
                     end_seconds = self._end_time.hour*3600 + self._end_time.minute*60 + self._end_time.second
                     now_seconds = now.hour*3600 + now.minute*60 + now.second
                     if now_seconds >= end_seconds:

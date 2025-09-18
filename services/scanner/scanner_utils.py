@@ -37,7 +37,7 @@ def get_active_tickers(ticker_cache:TickerCache = None):
 def get_next_run_date(seconds_to_wait: int) -> str:
     HALF_DAY = 12 * 60 * 60  # 43,200 seconds
 
-    now = datetime.now()
+    now = datetime.now().astimezone()
 
     # seconds into current 12-hour half (treats 12 as 0)
     seconds_in_half = (now.hour % 12) * 3600 + now.minute * 60 + now.second

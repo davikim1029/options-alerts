@@ -6,6 +6,7 @@ from services.etrade_consumer import force_generate_new_token
 from encryption.encryptItems import encryptEtradeKeySecret
 from analytics.analyze_evaluation import analysis_entry
 from analytics.cleanup_eval import cleanup_entry
+from analytics.review_ignore_cache import review_ignore
 from performance.performance_comparison import perf_comp_entry
 
 # Disable GPU / MPS fallback
@@ -25,6 +26,7 @@ def get_mode_from_prompt():
         ("cleanup-eval","Consolidate disparate eval files"),
         ("reset-tickers", "Reset the ticker caches for full review"),
         ("encrypt-etrade", "Encrypt Etrade Key And Secret"),
+        ("review-ignore","Review Ignored Ticker Cache"),
         ("quit", "Exit program")
     ]
 
@@ -83,6 +85,9 @@ def main():
               
           elif mode == "cleanup-eval":
               cleanup_entry()
+              
+          elif mode == "review-ignore":
+              review_ignore()
               
           elif mode == "reset-tickers":
               files_to_reset = ["evaluated","last_ticker"]

@@ -19,6 +19,7 @@ from services.threading.thread_manager import ThreadManager
 from services.utils import is_reload_flag_set,clear_reload_flag
 from analytics.analyze_evaluation import analysis_entry
 from analytics.cleanup_eval import cleanup_entry
+from analytics .review_ignore_cache import review_ignore
 from performance.performance_comparison import perf_comp_entry
 
 # Disable GPU / MPS fallback
@@ -37,6 +38,7 @@ def get_mode_from_prompt():
         ("analyze-tickers","Analyze evaluated tickers"),
         ("performance-compare","Compare performance on evaluated tickers"),
         ("cleanup-eval","Consolidate disparate eval files"),
+        ("review-ignore","Review Ignored Ticker Cache"),
         ("reset-tickers", "Reset the ticker caches for full review"),
         ("test-api", "Interactive test of E*TRADE API functions"),
         ("encrypt-etrade", "Encrypt Etrade Key And Secret"),
@@ -51,7 +53,7 @@ def get_mode_from_prompt():
         
         choice = input("\nEnter mode number (default 1): ").strip()
         
-        if choice in ("q", "quit", "6"):
+        if choice in ("q", "quit"):
             print("Exiting program.")
             return "quit"
         
@@ -156,6 +158,9 @@ def main():
             elif mode == "cleanup-eval":
                 cleanup_entry()
                 
+            elif mode == "review-ignore":
+                review_ignore()
+                    
             elif mode == "reset-tickers":
                 files_to_reset = ["evaluated","last_ticker"]
                 for name in files_to_reset:

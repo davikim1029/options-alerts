@@ -66,7 +66,7 @@ class EtradeConsumer:
             if r is not None:
                 response = r.response
                 if response is not None:
-                    if not hasattr(repsonse,"ok"):
+                    if not hasattr(response,"ok"):
                         self.logger.logMessage(f"Response to {url} does not contain an ok attribute: {json.dumps(response, indent=2, default=str)}")
                     if response.ok:
                       return response

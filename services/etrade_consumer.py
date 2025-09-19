@@ -116,7 +116,7 @@ class EtradeConsumer:
                         except Exception as e:
                             self.logger.logMessage(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")
                 else:
-                    self.logger.logMessage(f"Response missing response attribute for {url}")     
+                    self.logger.logMessage(f"Response missing response attribute for {url}. {json.dumps(r, indent=2, default=str)}")     
             else:
                 self.logger.logMessage(f"No response received for {url}")
         else:

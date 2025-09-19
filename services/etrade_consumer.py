@@ -376,7 +376,6 @@ class EtradeConsumer:
             "strategy": "SINGLE",
             "skipAdjusted": "false",
             "chainType": "CALL",
-            "noOfStrikes": "ALL",
         }
         try:
             response = self.get(url, params=params)

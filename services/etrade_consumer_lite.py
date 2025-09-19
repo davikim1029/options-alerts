@@ -255,7 +255,6 @@ class EtradeConsumerLite:
             "strategy": "SINGLE",
             "skipAdjusted": "false",
             "chainType": "CALL",
-            "noOfStrikes": 5,
         }
         r = self.get(url, params=params)
         if r is None:

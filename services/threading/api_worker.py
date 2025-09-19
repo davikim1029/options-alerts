@@ -68,11 +68,11 @@ class ApiWorker:
             if self._stop_event.is_set():
                 error="ApiWorker stopped before request completed"
                 status_code=500
-                return HttpResult(ok=False,status_code=status_code, error=error,response={"data":None,"status_code":status_code,"error":error})
+                return HttpResult(ok=False,status_code=status_code, error=error,response={"ok":False, "data":None,"status_code":status_code,"error":error})
             if timeout is not None and (time.time() - start_time) > timeout:
                 error = f"Timeout waiting for ApiWorker while calling {url}"
                 status_code=408
-                return HttpResult(ok=False, status_code=status_code, error=error, response={"data":None, "status_code":status_code,"error":error})
+                return HttpResult(ok=False, status_code=status_code, error=error, response={"ok":False,"data":None, "status_code":status_code,"error":error})
             time.sleep(0.01)
 
         return result[0]
@@ -175,7 +175,7 @@ class ApiWorker:
                 elif not is_async:
                     result.append(err_obj)
             except Exception as e:
-                err_obj = HttpResult(ok=False, error=f"Error: {str(e)}")
+                err_obj = HttpResult(ok=False, error=f"Error: {str(e)}", status_code=500,response={"ok":False,"status_code":500,"error":str(e),"data":None})
                 if is_async and callback:
                     try:
                         callback(err_obj, job_id)

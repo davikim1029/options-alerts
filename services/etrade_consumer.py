@@ -66,8 +66,6 @@ class EtradeConsumer:
             if r is not None:
                 response = r.response
                 if response is not None:
-                    if not hasattr(response,"ok"):
-                        self.logger.logMessage(f"Response to {url} does not contain an ok attribute: {json.dumps(response, indent=2, default=str)}")
                     if response.ok:
                       return response
                     else:
@@ -378,14 +376,12 @@ class EtradeConsumer:
             "strategy": "SINGLE",
             "skipAdjusted": "false",
             "chainType": "CALL",
-            "noOfStrikes": 5,
+            "noOfStrikes": "ALL",
         }
         try:
             response = self.get(url, params=params)
             if response is None:
                 raise Exception("No Response info was received")
-            elif not hasattr(response,"ok"):
-                raise Exception(f"Response does not contain an ok attribute: {json.dumps(response, indent=2, default=str)}")
             elif not response.ok: 
                 if response.status_code == 400:
                     error = "Received a 400 error, no options available"

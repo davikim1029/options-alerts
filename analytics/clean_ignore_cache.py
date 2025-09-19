@@ -10,7 +10,7 @@ def clean_ignore_cache():
         data = json.load(f)
 
     # Filter to keep only entries with the exact error message
-    error_message = "Received a 400 error, no options available"
+    error_message = "No options found"
     filtered_data = {
         k: v for k, v in data.items() if v.get("Value") == error_message
     }

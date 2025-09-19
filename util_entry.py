@@ -41,7 +41,7 @@ def get_mode_from_prompt():
         
         choice = input("\nEnter mode number: ").strip()
         
-        if choice in ("q", "quit", "6"):
+        if choice in ("q", "quit"):
             print("Exiting program.")
             return "quit"
         

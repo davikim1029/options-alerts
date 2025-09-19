@@ -66,9 +66,13 @@ class ApiWorker:
         start_time = time.time()
         while not result:
             if self._stop_event.is_set():
-                return HttpResult(ok=False, error="ApiWorker stopped before request completed")
+                error="ApiWorker stopped before request completed"
+                status_code=500
+                return HttpResult(ok=False,status_code=status_code, error=error,response={"data":None,"status_code":status_code,"error":error})
             if timeout is not None and (time.time() - start_time) > timeout:
-                return HttpResult(ok=False, error=f"Timeout waiting for ApiWorker while calling {url}")
+                error = f"Timeout waiting for ApiWorker while calling {url}"
+                status_code=408
+                return HttpResult(ok=False, status_code=status_code, error=error, response={"data":None, "status_code":status_code,"error":error})
             time.sleep(0.01)
 
         return result[0]

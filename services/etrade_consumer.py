@@ -20,6 +20,14 @@ class TokenExpiredError(Exception):
     """Raised when OAuth token is invalid or expired."""
     pass
 
+class NoOptionsError(Exception):
+    """Raised when a ticker has no options."""
+    pass
+
+class InvalidSymbolError(Exception):
+    """Raised when a ticker has no options."""
+    pass
+
 
 class EtradeConsumer:
     def __init__(self, apiWorker: ApiWorker = None, sandbox=False, debug=False):
@@ -59,69 +67,29 @@ class EtradeConsumer:
                 response = r.response
                 if response is not None:
                     if response.ok:
-                        if response is not None:
-                            return response,response.text
-                        else:
-                            error = "Warning: no data or raw response available"
-                            self.logger.logMessage(error)
-                            return None,error
+                      return response
                     else:
                         try:
                             # --- detect HTTP 401 Unauthorized ---
                             if response.status_code == 401:
                                 self.logger.logMessage("[Auth] Token expired or unauthorized, need to regenerate")
                                 self.token_status.set_status(False)
-                                raise TokenExpiredError("OAuth token expired")
-                            
-                            
-                            if response.status_code == 400:
-                                error = "Received a 400 error, no options available"
-                                return None,error
-                            
-                            # --- handle timeout / worker errors first ---
-                            if hasattr(response, "error"):
-                                if response.error and "Timeout" in response.error:
-                                    error = f"API call timed out: {response.error}"
-                                    self.logger.logMessage(error)
-                                    return None, error
-
-                                if response is None:
-                                    error = f"API call failed with no response object: {response.error}"
-                                    self.logger.logMessage(error)
-                                    return None, error 
-                                
-                            try:
-                                error = json.loads(response.text)
-                                error_code = error["Error"]["code"]
-                                
-                                #Invalid symbol
-                                if error_code == 10033:
-                                    symbol = params.get("symbol",None)
-                                    if symbol is None:
-                                        self.logger.logMessage(f"Received error code: {error_code} but no symbol found")
-                                
-                                #10031 means no options available for month
-                                #10032 means no options available
-                                elif error_code in (10031, 10032):
-                                    symbol = params.get("symbol",None)
-                                    if symbol is None:
-                                        self.logger.logMessage(f"Received error code: {error_code} but no symbol found")
-                                else:
-                                    self.logger.logMessage(f"Error: {error}")
-                            except Exception as e:
-                                self.logger.logMessage(f"Unexpected Error: {e} in response {json.dumps(response, indent=2, default=str)} ")
-                                
+                                raise TokenExpiredError("OAuth token expired")      
+                            elif response.status_code == 408:
+                                raise TimeoutError    
+                            else:
+                                return response     
                         except TokenExpiredError as e:
                             raise
                         except Exception as e:
-                            self.logger.logMessage(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")
+                            self.logger.logMessage(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")      
                 else:
                     self.logger.logMessage(f"Response missing response attribute for {url}. {json.dumps(r, indent=2, default=str)}")     
             else:
                 self.logger.logMessage(f"No response received for {url}")
         else:
             try:
-                return self.session.get(url, headers=headers, params=params),""
+                return self.session.get(url, headers=headers, params=params)
             
             except Exception as e:
                 error = f"[GET Exception] {e} for URL: {url}"
@@ -258,7 +226,7 @@ class EtradeConsumer:
         """Simple API test to check if the current session is valid."""
         try:
             url = f"{self.base_url}/v1/accounts/list.json"
-            r,error = self.get(url)
+            r = self.get(url)
             return r and getattr(r, "status_code", 200) == 200
         except Exception as e:
             self.logger.logMessage(f"[Token Validation] Session check failed: {e}")
@@ -371,7 +339,7 @@ class EtradeConsumer:
     # ------------------- ACCOUNT / PORTFOLIO -------------------
     def get_accounts(self):
         url = f"{self.base_url}/v1/accounts/list.json"
-        r,error = self.get(url)
+        r = self.get(url)
         try:
             accts = r.json().get("AccountListResponse", {}).get("Accounts", {}).get("Account", [])
             return [Account(**acct) for acct in accts]
@@ -384,7 +352,7 @@ class EtradeConsumer:
         all_positions = []
         for acct in accounts:
             url = f"{self.base_url}/v1/accounts/{acct.accountIdKey}/portfolio.json"
-            r,error = self.get(url)
+            r = self.get(url)
             data = r.json()
             account_portfolios = data.get("PortfolioResponse", {}).get("AccountPortfolio", [])
             for acct_raw in account_portfolios:
@@ -410,14 +378,44 @@ class EtradeConsumer:
             "chainType": "CALL",
             "noOfStrikes": 5,
         }
-        r,error = self.get(url, params=params)
-        if r is None:
-            return None,False,error
+        try:
+            response = self.get(url, params=params)
+            if response is None:
+                raise Exception("No Response info was received")
+            
+            elif not response.ok: 
+                if response.status_code == 400:
+                    error = "Received a 400 error, no options available"
+                    raise NoOptionsError(f"No Options received for {symbol}")
+
+                elif response.status_code == 408:
+                    raise TimeoutError(f"Timeout received when processing options for {symbol}")
+                    
+                try:
+                    error = json.loads(response.text)
+                    error_code = error["Error"]["code"]
+                    
+                    #Invalid symbol
+                    if error_code == 10033:
+                        raise InvalidSymbolError(f"Invalid symbol for {symbol}")
+                    
+                    #10031 means no options available for month
+                    #10032 means no options available
+                    elif error_code in (10031, 10032):
+                        raise NoOptionsError(f"No Options available for ticker: {symbol}")        
+                    else:
+                        raise Exception(error)
+                except Exception as e:
+                    raise Exception(f"Error parsing response error for ticker {symbol}: {e}")
+        except Exception as e:
+            raise e
+        
+        #If we are here means response.ok == true
 
         local_tz = datetime.now().astimezone().tzinfo
 
         try:
-            chain_data = r.json().get("OptionChainResponse", {})
+            chain_data = response.json().get("OptionChainResponse", {})
             near_price = chain_data.get("nearPrice")
             expiry_dict = chain_data.get("SelectedED", {})
             expiry_date = datetime(
@@ -470,10 +468,10 @@ class EtradeConsumer:
                 )
 
                 results.append(option)
-            return results,True,error
+            return results
         except Exception as e:
-            self.logger.logMessage(f"[ERROR] Failed to parse option chain for {symbol}: {e}")
-            return [],False,error
+            errorMessage = f"[ERROR] Failed to parse option chain for {symbol}: {e}"
+            raise Exception(errorMessage)
 
     # ------------------- QUOTES -------------------
     def get_quote(self, symbol):

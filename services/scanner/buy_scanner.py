@@ -10,7 +10,7 @@ from services.alerts import send_alert
 from strategy.buy import OptionBuyStrategy
 from strategy.sentiment import SectorSentimentStrategy
 from services.token_status import TokenStatus
-from services.etrade_consumer import TokenExpiredError
+from services.etrade_consumer import TokenExpiredError, NoOptionsError
 from services.core.cache_manager import (
     LastTickerCache,
     IgnoreTickerCache,
@@ -18,6 +18,7 @@ from services.core.cache_manager import (
     EvalCache,
     TickerMetadata,
 )
+
 
 # ------------------------- Result container -------------------------
 @dataclass
@@ -77,22 +78,6 @@ def run_parallel(fn, items, max_workers=8, stop_event=None, collect_errors=True)
                 else:
                     raise
     return results, errors
-
-
-# ------------------------- Safe option chain wrapper -------------------------
-def safe_get_option_chain(consumer, ticker):
-    logger = getLogger()
-    try:
-        with api_worker_lock:
-            options, has_options = consumer.get_option_chain(ticker)
-        return options, has_options
-    except TokenExpiredError:
-        logger.logMessage("[Buy Scanner] Token expired, pausing scanner.")
-        send_alert("E*TRADE token expired. Please re-authenticate.")
-        token_status.wait_until_valid(check_interval=30)
-        consumer.load_tokens(generate_new_token=False)
-        logger.logMessage("[Buy Scanner] Token restored, resuming scan.")
-
 
 # ------------------------- Analysis logic -------------------------
 def analyze_ticker(ticker, options, context, buy_strategies, caches, config, debug=False):
@@ -268,7 +253,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
     fetch_q, result_q = queue.Queue(), queue.Queue()
     api_semaphore = threading.Semaphore(api_semaphore_limit)
 
-    def api_worker(stop_evt):
+    def api_worker(stop_evt, ignore_cache = None):
         logger.logMessage(f"[Buy Scanner] API worker {threading.current_thread().name} started")
         while not stop_evt.is_set():
             try:
@@ -280,8 +265,14 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                 break
             with api_semaphore:
                 try:
-                    options, has_options,error = consumer.get_option_chain(ticker)
-                    result_q.put((ticker, options, bool(has_options),error))
+                    options = consumer.get_option_chain(ticker)
+                    result_q.put((ticker, options))
+                except TimeoutError:
+                    logger.logMessage(f"[Buy Scanner] Timeout occurred while processing {ticker}, requeuing.")
+                    fetch_q.put(ticker)
+                except NoOptionsError:
+                    if ignore_cache is not None:
+                        ignore_cache.add(ticker, f"No options found")
                 except TokenExpiredError:
                     logger.logMessage("[Buy Scanner] TokenExpiredError in api_worker.")
                     send_alert("E*TRADE token expired. Please re-authenticate.")
@@ -289,8 +280,8 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                     consumer.load_tokens(generate_new_token=False)
                     fetch_q.put(ticker)
                 except Exception as e:
-                    logger.logMessage(f"[Buy Scanner] Error fetching {ticker}: {e}")
-                    result_q.put((ticker, None, False, e))
+                    logger.logMessage(f"[Buy Scanner] Error fetching options for {ticker}: {e}")
+                    result_q.put((ticker, None))
                 finally:
                     fetch_q.task_done()
         logger.logMessage(f"[Buy Scanner] API worker {threading.current_thread().name} exiting")
@@ -305,21 +296,21 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
             if item is None:
                 result_q.task_done()
                 break
-            ticker, options, has_options,error = item
+            ticker, options = item
             global total_iterated
             total_iterated += 1
-            if has_options and options:
+            if options is not None:
                 try:
                     analyze_ticker(ticker, options, context, buy_strategies, caches, {}, debug)
                 except Exception as e:
                     logger.logMessage(f"[Buy Scanner] analyze_ticker {ticker} error: {e}")
             else:
-                (getattr(caches, "ignore", None) or IgnoreTickerCache()).add(ticker, error)
+                logger.logMessage(f"Ticker {ticker} has no options found but was not caught as an exception")
             result_q.task_done()
         logger.logMessage(f"[Buy Scanner] Analysis worker {threading.current_thread().name} exiting")
 
     # Start workers
-    api_threads = [threading.Thread(target=api_worker, args=(stop_event,), name=f"Buy Fetch Thread {i}", daemon=True) for i in range(num_api_threads)]
+    api_threads = [threading.Thread(target=api_worker, args=(stop_event,ignore_cache), name=f"Buy Fetch Thread {i}", daemon=True) for i in range(num_api_threads)]
     for t in api_threads: t.start()
     analysis_threads = [threading.Thread(target=analysis_worker, args=(stop_event,), name=f"Buy Analysis Thread {i}", daemon=True) for i in range(num_analysis_threads)]
     for t in analysis_threads: t.start()

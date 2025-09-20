@@ -275,7 +275,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                     error = "No options found"
                     if hasattr(e,"args") and len(e.args) > 0:
                         e_data = json.loads(e.args[0])
-                        if hasattr(e_data,"Error"):
+                        if e_data.get("Error",error):
                             error = str(e_data["Error"])
                     else:
                         error = str(e)

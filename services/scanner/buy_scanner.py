@@ -18,8 +18,8 @@ from services.core.cache_manager import (
     EvalCache,
     TickerMetadata,
 )
-import json 
-
+from services.utils import is_json
+import json
 
 # ------------------------- Result container -------------------------
 @dataclass
@@ -274,9 +274,15 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                 except NoOptionsError as e:
                     error = "No options found"
                     if hasattr(e,"args") and len(e.args) > 0:
-                        e_data = json.loads(e.args[0])
-                        if e_data.get("Error",error):
-                            error = str(e_data["Error"])
+                        e_data = e.args[0]
+                        if is_json(e_data):
+                            e_data = json.loads(e_data)
+                            if hasattr(e_data,"Error"):
+                                error = str(e_data["Error"])
+                            else:
+                                error = str(e_data)
+                        else:
+                            error = str(e_data)
                     else:
                         error = str(e)
                     if ignore_cache is not None:

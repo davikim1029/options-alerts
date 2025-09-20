@@ -185,3 +185,17 @@ def get_project_root_os():
            os.path.exists(os.path.join(parent_dir, 'setup.py')):
             return parent_dir
         current_file_path = parent_dir
+
+
+
+def is_json(value):
+    """
+    Returns True if `value` is a JSON string (object or array), False otherwise.
+    """
+    if not isinstance(value, str):
+        return False
+    try:
+        json.loads(value)
+        return True
+    except json.JSONDecodeError:
+        return False

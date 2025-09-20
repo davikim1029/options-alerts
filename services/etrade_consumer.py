@@ -1,7 +1,7 @@
 # etrade_consumer.py
 import os
 import json
-import webbrowser
+from typing import List
 import time as pyTime
 from datetime import datetime, timezone
 from cryptography.fernet import Fernet
@@ -376,7 +376,31 @@ class EtradeConsumer:
         return None
 
     # ------------------- OPTION CHAINS -------------------
-    def get_option_chain(self, symbol):
+    
+    def get_expiry_dates(self, symbol):
+        url = f"{self.base_url}/v1/market/optionexpiredate.json"
+        params = {"symbol": symbol}
+        try:
+            response = self.get(url, params=params)
+        except Exception as e:
+            raise Exception(f"Failed to fetch expiry dates: {str(e)}")
+
+        if response.status_code == 204:
+            raise NoOptionsError(f"Ticker returned no expiry dates")
+
+        try:
+            data = response.json()
+            expiry_list = data.get("OptionExpireDateResponse", {}).get("ExpirationDate", [])
+            # Return simplified dicts with year/month/day
+            return [
+                {"year": e.get("year"), "month": e.get("month"), "day": e.get("day"), "expiryType": e.get("expiryType")}
+                for e in expiry_list
+            ]
+        except Exception as e:
+            raise Exception(f"Failed to parse expiry dates response for {symbol}: {e}")
+
+
+    def get_option_chain(self, symbol, date_range=None):
         url = f"{self.base_url}/v1/market/optionchains.json"
         params = {
             "symbol": symbol,
@@ -385,99 +409,125 @@ class EtradeConsumer:
             "skipAdjusted": "false",
             "chainType": "CALL",
         }
-        try:
-            response = self.get(url, params=params)
-            if response is None:
-                raise Exception("No Response info was received")
-            elif not response.ok: 
-                if response.status_code == 400:
-                    error = "Received a 400 error, no options available"
-                    raise NoOptionsError(f"No Options received for {symbol}")
 
-                elif response.status_code == 408:
-                    raise TimeoutError(f"Timeout received when processing options for {symbol}")
-                    
-                try:
-                    error = json.loads(response.text)
-                    error_code = error["Error"]["code"]
-                    
-                    #Invalid symbol
-                    if error_code == 10033:
-                        raise InvalidSymbolError(f"Invalid symbol for {symbol}")
-                    
-                    #10031 means no options available for month
-                    #10032 means no options available
-                    elif error_code in (10031, 10032):
-                        raise NoOptionsError(f"No Options available for ticker: {symbol}")        
-                    else:
-                        raise Exception(error)
-                except Exception as e:
-                    raise Exception(f"Error parsing response error for ticker {symbol}: {e}")
-        except Exception as e:
-            raise e
-        
-        #If we are here means response.ok == true
+        # Resolve expiry dates
+        expiry_dates = []
+        if date_range is None:
+            # Default: get all expiries
+            expiry_dates = self.get_expiry_dates(symbol=symbol)
+        elif "year" in date_range and "month" in date_range:
+            # Single expiry (shortcut, no need to fetch all)
+            expiry_dates = [date_range]
+        elif "start" in date_range and "end" in date_range:
+            # Range → fetch all, then filter
+            all_expiries = self.get_expiry_dates(symbol=symbol)
+            start_y, start_m = date_range["start"]["year"], date_range["start"]["month"]
+            end_y, end_m = date_range["end"]["year"], date_range["end"]["month"]
 
-        local_tz = datetime.now().astimezone().tzinfo
+            def in_range(exp):
+                y, m = exp["year"], exp["month"]
+                return (y > start_y or (y == start_y and m >= start_m)) and \
+                    (y < end_y or (y == end_y and m <= end_m))
 
-        try:
-            chain_data = response.json().get("OptionChainResponse", {})
-            near_price = chain_data.get("nearPrice")
-            expiry_dict = chain_data.get("SelectedED", {})
-            expiry_date = datetime(
-                year=expiry_dict.get("year", 1970),
-                month=expiry_dict.get("month", 1),
-                day=expiry_dict.get("day", 1),
-                tzinfo=local_tz
-            )
-            results = []
-            for optionPair in chain_data.get("OptionPair", []):
-                call = optionPair.get("Call", {})
-                call["expiryDate"] = expiry_date
-                call["nearPrice"] = near_price
-                call_greeks = call.get("OptionGreeks", {})
-                option_greeks = OptionGreeks(**call_greeks)
+            expiry_dates = [exp for exp in all_expiries if in_range(exp)]
+        else:
+            raise ValueError("date_range must be either {year, month} or {start:{}, end:{}}")
 
-                product = Product(
-                    symbol=call.get("symbol"),
-                    securityType=call.get("optionType"),  # or "CALL"/"PUT"
-                    callPut="CALL" if call.get("optionType") == "CALL" else "PUT",
-                    strikePrice=call.get("strikePrice"),
-                    productId=ProductId(symbol=call.get("symbol"), typeCode=call.get("optionType")),
-                    expiryDay=expiry_date.day,
-                    expiryMonth=expiry_date.month,
-                    expiryYear=expiry_date.year
+        results = []
+
+        # Loop across all target expiries
+        for expiry in expiry_dates:
+            params.update({
+                "expiryYear": expiry["year"],
+                "expiryMonth": expiry["month"]
+            })
+
+            try:
+                response = self.get(url, params=params)
+                if response is None:
+                    raise Exception("No Response info was received")
+                elif not response.ok:
+                    if response.status_code == 400:
+                        raise NoOptionsError(f"No Options received for {symbol}")
+                    elif response.status_code == 408:
+                        raise TimeoutError(f"Timeout received when processing options for {symbol}")
+
+                    try:
+                        error = json.loads(response.text)
+                        error_code = error["Error"]["code"]
+
+                        if error_code == 10033:
+                            raise InvalidSymbolError(f"Invalid symbol for {symbol}")
+                        elif error_code in (10031, 10032):
+                            raise NoOptionsError(f"No Options available for ticker: {symbol}")
+                        else:
+                            raise Exception(error)
+                    except Exception as e:
+                        raise Exception(f"Error parsing response error for ticker {symbol}: {e}")
+            except Exception as e:
+                raise e
+
+            # If we are here means response.ok == true
+            local_tz = datetime.now().astimezone().tzinfo
+
+            try:
+                chain_data = response.json().get("OptionChainResponse", {})
+                near_price = chain_data.get("nearPrice")
+                expiry_dict = chain_data.get("SelectedED", {})
+                expiry_date = datetime(
+                    year=expiry_dict.get("year", 1970),
+                    month=expiry_dict.get("month", 1),
+                    day=expiry_dict.get("day", 1),
+                    tzinfo=local_tz
                 )
 
-                quick = Quick(
-                    lastTrade=call.get("lastPrice"),
-                    lastTradeTime=None,
-                    change=None,
-                    changePct=None,
-                    volume=call.get("volume"),
-                    quoteStatus=None
-                )
+                for optionPair in chain_data.get("OptionPair", []):
+                    call = optionPair.get("Call", {})
+                    call["expiryDate"] = expiry_date
+                    call["nearPrice"] = near_price
+                    call_greeks = call.get("OptionGreeks", {})
+                    option_greeks = OptionGreeks(**call_greeks)
 
-                # Only pass keys that exist in OptionContract
-                option_fields = {k: call[k] for k in [
-                    "symbol", "optionType", "strikePrice", "displaySymbol", "osiKey",
-                    "bid", "ask", "bidSize", "askSize", "inTheMoney", "volume",
-                    "openInterest", "netChange", "lastPrice", "quoteDetail",
-                    "optionCategory", "timeStamp", "adjustedFlag","expiryDate","nearPrice"
-                ] if k in call}
+                    product = Product(
+                        symbol=call.get("symbol"),
+                        securityType=call.get("optionType"),
+                        callPut="CALL" if call.get("optionType") == "CALL" else "PUT",
+                        strikePrice=call.get("strikePrice"),
+                        productId=ProductId(symbol=call.get("symbol"), typeCode=call.get("optionType")),
+                        expiryDay=expiry_date.day,
+                        expiryMonth=expiry_date.month,
+                        expiryYear=expiry_date.year
+                    )
 
-                option = OptionContract(
-                    **option_fields,
-                    OptionGreeks=option_greeks,
-                    quick=quick,
-                    product=product
-                )
+                    quick = Quick(
+                        lastTrade=call.get("lastPrice"),
+                        lastTradeTime=None,
+                        change=None,
+                        changePct=None,
+                        volume=call.get("volume"),
+                        quoteStatus=None
+                    )
 
-                results.append(option)
-            return results
-        except Exception as e:
-            errorMessage = f"[ERROR] Failed to parse option chain for {symbol}: {e}"
-            raise Exception(errorMessage)
+                    option_fields = {k: call[k] for k in [
+                        "symbol", "optionType", "strikePrice", "displaySymbol", "osiKey",
+                        "bid", "ask", "bidSize", "askSize", "inTheMoney", "volume",
+                        "openInterest", "netChange", "lastPrice", "quoteDetail",
+                        "optionCategory", "timeStamp", "adjustedFlag", "expiryDate", "nearPrice"
+                    ] if k in call}
+
+                    option = OptionContract(
+                        **option_fields,
+                        OptionGreeks=option_greeks,
+                        quick=quick,
+                        product=product
+                    )
+
+                    results.append(option)
+            except Exception as e:
+                errorMessage = f"[ERROR] Failed to parse option chain for {symbol}: {e}"
+                raise Exception(errorMessage)
+
+        return results
 
     # ------------------- QUOTES -------------------
     def get_quote(self, symbol):

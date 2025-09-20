@@ -18,6 +18,7 @@ from services.core.cache_manager import (
     EvalCache,
     TickerMetadata,
 )
+import json 
 
 
 # ------------------------- Result container -------------------------
@@ -267,13 +268,20 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                 try:
                     options = consumer.get_option_chain(ticker)
                     result_q.put((ticker, options))
-                except TimeoutError:
-                    logger.logMessage(f"[Buy Scanner] Timeout occurred while processing {ticker}, requeuing.")
+                except TimeoutError as e:
+                    logger.logMessage(f"[Buy Scanner] Timeeout error occurred while processing {ticker}. Exception: {str(e)}, requeuing.")
                     fetch_q.put(ticker)
-                except NoOptionsError:
+                except NoOptionsError as e:
+                    error = "No options found"
+                    if hasattr(e,"args") and len(e.args) > 0:
+                        e_data = json.loads(e.args[0])
+                        if hasattr(e_data,"Error"):
+                            error = str(e_data["Error"])
+                    else:
+                        error = str(e)
                     if ignore_cache is not None:
-                        ignore_cache.add(ticker, f"No options found")
-                except TokenExpiredError:
+                        ignore_cache.add(ticker, error)
+                except TokenExpiredError as e:
                     logger.logMessage("[Buy Scanner] TokenExpiredError in api_worker.")
                     send_alert("E*TRADE token expired. Please re-authenticate.")
                     token_status.wait_until_valid(check_interval=30)

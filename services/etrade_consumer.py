@@ -64,29 +64,37 @@ class EtradeConsumer:
             error = ""
             r = self.apiWorker.call_api(HttpMethod.GET, url, headers=headers, params=params)
             if r is not None:
-                response = r.response
-                if response is not None:
-                    if response.ok:
-                      return response
+                if r.ok:
+                    if hasattr(r,"response"):
+                        return r.response
                     else:
-                        try:
-                            # --- detect HTTP 401 Unauthorized ---
-                            if response.status_code == 401:
-                                self.logger.logMessage("[Auth] Token expired or unauthorized, need to regenerate")
-                                self.token_status.set_status(False)
-                                raise TokenExpiredError("OAuth token expired")      
-                            elif response.status_code == 408:
-                                raise TimeoutError    
-                            else:
-                                return response     
-                        except TokenExpiredError as e:
-                            raise
-                        except Exception as e:
-                            self.logger.logMessage(f"Error parsing error: {e} from response {json.dumps(response, indent=2, default=str)}")      
+                        raise Exception(f"Response to {url} does not contain a response attribute: {json.dumps(r, indent=2, default=str)}")
                 else:
-                    self.logger.logMessage(f"Response missing response attribute for {url}. {json.dumps(r, indent=2, default=str)}")     
+                    # --- detect HTTP 401 Unauthorized ---
+                    status_code = None
+                    if r.status_code is not None:
+                        status_code = r.status_code
+                    else:
+                        if hasattr(r,"response"):
+                            status_code = r.response.status_code
+                    if status_code == 401:
+                        self.logger.logMessage("[Auth] Token expired or unauthorized, need to regenerate")
+                        self.token_status.set_status(False)
+                        raise TokenExpiredError("OAuth token expired")  
+                    elif status_code == 408:
+                        raise TimeoutError    
+                    elif status_code == 400:
+                        error = ""
+                        if hasattr(r,"response"):
+                            error = r.response.text
+                        else:
+                            error = r.error
+                        raise (NoOptionsError(error))
+   
+                    else:
+                        raise Exception(f"Resopnse received an error. Calculated status code: {status_code}. Response: {json.dumps(r, indent=2, default=str)}")        
             else:
-                self.logger.logMessage(f"No response received for {url}")
+                raise Exception(f"No response received for {url}")
         else:
             try:
                 return self.session.get(url, headers=headers, params=params)

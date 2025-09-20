@@ -258,9 +258,7 @@ class EtradeConsumerLite:
         }
         r = self.get(url, params=params)
         if r is None:
-            return None,False,error
-
-        local_tz = datetime.now().astimezone().tzinfo
+            return None
 
         try:
             return r.json()

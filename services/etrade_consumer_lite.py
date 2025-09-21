@@ -247,6 +247,24 @@ class EtradeConsumerLite:
         return None
 
     # ------------------- OPTION CHAINS -------------------
+    def get_expiry_dates(self, symbol):
+        url = f"{self.base_url}/v1/market/optionexpiredate.json"
+        params = {"symbol": symbol}
+        try:
+            response = self.get(url, params=params)
+        except Exception as e:
+            raise Exception(f"Failed to fetch expiry dates: {str(e)}")
+        
+        if response is None:
+            return None
+
+        try:
+            return response.json()
+        except:
+            return str(response)
+        
+        
+        
     def get_option_chain(self, symbol):
         url = f"{self.base_url}/v1/market/optionchains.json"
         params = {
@@ -256,6 +274,14 @@ class EtradeConsumerLite:
             "skipAdjusted": "false",
             "chainType": "CALL",
         }
+        
+        month,year = get_valid_month_year()
+        if month is not None:
+            params.update({"expiryMonth": month})
+        if year is not None:
+            params.update({
+                    "expiryYear": year,
+            })
         r = self.get(url, params=params)
         if r is None:
             return None
@@ -263,7 +289,7 @@ class EtradeConsumerLite:
         try:
             return r.json()
         except Exception as e:
-            print(f"[ERROR] Failed to parse option chain for {symbol}: {e}")
+            print(f"[ERROR] Failed to parse option chain for {symbol}: {str(e)}")
             return None
 
     # ------------------- QUOTES -------------------
@@ -287,4 +313,34 @@ class EtradeConsumerLite:
             return None
 
 
+# ------------------- Helpers -------------------- #
+def get_valid_month_year():
+    while True:
+        month_str = input("Enter month (1-12, or leave blank for None): ").strip()
+        if not month_str:  # empty input
+            month = None
+            break
+        try:
+            month = int(month_str)
+            if 1 <= month <= 12:
+                break
+            else:
+                print("Invalid month. Please enter 1–12, or leave blank for None.")
+        except ValueError:
+            print("Invalid input. Please enter a number or leave blank.")
 
+    while True:
+        year_str = input("Enter year (e.g., 2025, or leave blank for None): ").strip()
+        if not year_str:
+            year = None
+            break
+        try:
+            year = int(year_str)
+            if year > 0:
+                break
+            else:
+                print("Year must be positive, or leave blank for None.")
+        except ValueError:
+            print("Invalid input. Please enter a valid year or leave blank.")
+
+    return month, year

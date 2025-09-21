@@ -59,3 +59,9 @@ def get_ticker_opts_entry():
     response = consumer.get_option_chain(ticker)
     print(json.dumps(response, indent=2, default=str))
     
+    
+def get_ticker_expiry_entry():
+    ticker = prompt_for_ticker()
+    consumer = EtradeConsumerLite(sandbox=False, debug=False)
+    response = consumer.get_expiry_dates(ticker)
+    print(json.dumps(response, indent=2, default=str))

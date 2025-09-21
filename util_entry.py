@@ -8,7 +8,7 @@ from analytics.analyze_evaluation import analysis_entry
 from analytics.cleanup_eval import cleanup_entry
 from analytics.review_ignore_cache import review_ignore
 from performance.performance_comparison import perf_comp_entry
-from testing.get_ticker_opts import get_ticker_opts_entry
+from testing.get_ticker_opts import get_ticker_opts_entry,get_ticker_expiry_entry
 
 # Disable GPU / MPS fallback
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -26,6 +26,7 @@ def get_mode_from_prompt():
         ("performance-compare","Compare performance on evaluated tickers"),
         ("cleanup-eval","Consolidate disparate eval files"),
         ("get-ticker-opts", "Get option results for a given ticker"),
+        ("get-ticker_exp", "Get option expiry for a given ticker"),
         ("reset-tickers", "Reset the ticker caches for full review"),
         ("encrypt-etrade", "Encrypt Etrade Key And Secret"),
         ("review-ignore","Review Ignored Ticker Cache"),
@@ -92,6 +93,9 @@ def main():
 
         elif mode == "get-ticker-opts":
             get_ticker_opts_entry()
+            
+        elif mode == "get-ticker_exp":
+            get_ticker_expiry_entry()
             
         elif mode == "reset-tickers":
             files_to_reset = ["evaluated","last_ticker"]

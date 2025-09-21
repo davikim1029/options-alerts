@@ -133,12 +133,13 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
         if secondary_failure != "":
             continue
 
-        try:
-            msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {getattr(opt, 'ask', -1) * 100}"
-            send_alert(msg)
-            buy_alerts.append(msg)
-        except Exception as e:
-            logger.logMessage(f"[Buy Scanner] send_alert failed: {e}")
+        if should_buy and secondary_failure == "":
+            try:
+                msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {getattr(opt, 'ask', -1) * 100}"
+                send_alert(msg)
+                buy_alerts.append(msg)
+            except Exception as e:
+                logger.logMessage(f"[Buy Scanner] send_alert failed: {e}")
 
     with counter_lock:
         global processed_counter

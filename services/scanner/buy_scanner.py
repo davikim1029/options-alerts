@@ -10,7 +10,7 @@ from services.alerts import send_alert
 from strategy.buy import OptionBuyStrategy
 from strategy.sentiment import SectorSentimentStrategy
 from services.token_status import TokenStatus
-from services.etrade_consumer import TokenExpiredError, NoOptionsError
+from services.etrade_consumer import TokenExpiredError, NoOptionsError,NoExpiryError
 from services.core.cache_manager import (
     LastTickerCache,
     IgnoreTickerCache,
@@ -272,6 +272,23 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                 except TimeoutError as e:
                     logger.logMessage(f"[Buy Scanner] Timeeout error occurred while processing {ticker}. Exception: {str(e)}, requeuing.")
                     fetch_q.put(ticker)
+                except NoExpiryError as e:
+                    error = "No expiry found"
+                    if hasattr(e,"args") and len(e.args) > 0:
+                        e_data = e.args[0]
+                        if is_json(e_data):
+                            e_data = json.loads(e_data)
+                            if hasattr(e_data,"Error"):
+                                error = str(e_data["Error"])
+                            else:
+                                error = str(e_data)
+                        else:
+                            error = str(e_data)
+                    else:
+                        error = str(e)
+                    if ignore_cache is not None:
+                        ignore_cache.add(ticker, error)
+                    
                 except NoOptionsError as e:
                     error = "No options found"
                     if hasattr(e,"args") and len(e.args) > 0:
@@ -281,7 +298,13 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                             if hasattr(e_data,"Error"):
                                 error = str(e_data["Error"])
                             else:
-                                error = str(e_data)
+                                error_obj = e_data.get("Error")
+                                if error_obj is not None:
+                                    code = error_obj.get("code")
+                                    message = error_obj.get("message")
+                                    error = f"Code {code}: {message}"
+                                else:
+                                    error = str(e_data)
                         else:
                             error = str(e_data)
                     else:

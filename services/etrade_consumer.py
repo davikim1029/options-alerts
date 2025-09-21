@@ -24,6 +24,10 @@ class NoOptionsError(Exception):
     """Raised when a ticker has no options."""
     pass
 
+class NoExpiryError(Exception):
+    """Raised when ticker has no expiry dates"""
+    pass
+
 class InvalidSymbolError(Exception):
     """Raised when a ticker has no options."""
     pass
@@ -382,11 +386,15 @@ class EtradeConsumer:
         params = {"symbol": symbol}
         try:
             response = self.get(url, params=params)
+            
+            #before we implement, make sure can have unique handling depending on caller
+            #self.inspect_response(symbol,response)
+            
         except Exception as e:
-            raise Exception(f"Failed to fetch expiry dates: {str(e)}")
-
+            self.handle_exception(e)
+            
         if response.status_code == 204:
-            raise NoOptionsError(f"Ticker returned no expiry dates")
+            raise NoExpiryError(f"Ticker returned no expiry dates")
 
         try:
             data = response.json()
@@ -444,28 +452,9 @@ class EtradeConsumer:
 
             try:
                 response = self.get(url, params=params)
-                if response is None:
-                    raise Exception("No Response info was received")
-                elif not response.ok:
-                    if response.status_code == 400:
-                        raise NoOptionsError(f"No Options received for {symbol}")
-                    elif response.status_code == 408:
-                        raise TimeoutError(f"Timeout received when processing options for {symbol}")
-
-                    try:
-                        error = json.loads(response.text)
-                        error_code = error["Error"]["code"]
-
-                        if error_code == 10033:
-                            raise InvalidSymbolError(f"Invalid symbol for {symbol}")
-                        elif error_code in (10031, 10032):
-                            raise NoOptionsError(f"No Options available for ticker: {symbol}")
-                        else:
-                            raise Exception(error)
-                    except Exception as e:
-                        raise Exception(f"Error parsing response error for ticker {symbol}: {e}")
+                self.inspect_response(symbol, response)
             except Exception as e:
-                raise e
+                self.handle_exception(e)
 
             # If we are here means response.ok == true
             local_tz = datetime.now().astimezone().tzinfo
@@ -548,6 +537,31 @@ class EtradeConsumer:
         except Exception as e:
             self.logger.logMessage(f"[ERROR] Failed to parse quote for {symbol}: {e}")
             return None
+        
+    def handle_exception(self,e):
+        raise e
+    
+    def inspect_response(self,symbol, response):
+        if response is None:
+            raise Exception("No Response info was received")
+        elif not response.ok:
+            if response.status_code == 400:
+                raise NoOptionsError(f"No Options received for {symbol}")
+            elif response.status_code == 408:
+                raise TimeoutError(f"Timeout received when processing options for {symbol}")
+
+            try:
+                error = json.loads(response.text)
+                error_code = error["Error"]["code"]
+
+                if error_code == 10033:
+                    raise InvalidSymbolError(f"Invalid symbol for {symbol}")
+                elif error_code in (10031, 10032):
+                    raise NoOptionsError(f"No Options available for ticker: {symbol}")
+                else:
+                    raise Exception(error)
+            except Exception as e:
+                raise Exception(f"Error parsing response error for ticker {symbol}: {e}") 
 
 
 # ------------------- FORCE TOKEN GENERATION (OUTSIDE CLASS) -------------------

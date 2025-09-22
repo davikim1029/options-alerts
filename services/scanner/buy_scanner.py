@@ -94,7 +94,7 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
         should_buy, osi_key = True, getattr(opt, "osiKey", None)
         processed_osi_keys.add(osi_key)
         disp = opt.displaySymbol.split(" ")
-        eval_key = f"{disp[0]} - {" ".join(disp[1:])}"
+        eval_key = f"{disp[0]} - {' '.join(disp[1:])}"
 
         # Primary strategies
         eval_result = {}

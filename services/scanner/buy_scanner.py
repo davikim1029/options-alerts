@@ -95,6 +95,7 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
         processed_osi_keys.add(osi_key)
 
         # Primary strategies
+        eval_result = {}
         for primary in buy_strategies["Primary"]:
             try:
                 success, error,score = primary.should_buy(opt, context)
@@ -109,7 +110,7 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
                 eval_result[(primary.name, primary.name, "Message")] = str(e)
                 eval_result[("PrimaryStrategy", primary.name, "Score")] = "N/A"
 
-        if not should_buy == True:
+        if should_buy == False:
             eval_result[("SecondaryStrategy","N/A", "Result")] = False
             eval_result[("SecondaryStrategy","N/A", "Message")] = "Primary Strategy did not pass, secondary not evaluated"
             eval_result[("SecondaryStrategy", "N/A", "Score")] = "N/A"

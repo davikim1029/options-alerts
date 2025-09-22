@@ -96,7 +96,7 @@ def main():
             
         elif mode == "get-ticker_exp":
             get_ticker_expiry_entry()
-            
+        
         elif mode == "reset-tickers":
             files_to_reset = ["evaluated","last_ticker"]
             for name in files_to_reset:

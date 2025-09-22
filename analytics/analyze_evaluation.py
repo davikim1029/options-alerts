@@ -33,17 +33,21 @@ def analyze_failures(file_path: str):
             primary = value.get("PrimaryStrategy", {}).get("OptionBuyStrategy", {})
             secondary = list(value.get("SecondaryStrategy", {}).values())[0] if value.get("SecondaryStrategy") else {}
 
+            primary_failure = False
             # --- Primary evaluation ---
             if not primary.get("Result", True):
                 score = primary.get("Score", "N/A")
                 if score != "N/A":
                     score_counts[score] += 1
+                else:
+                    score_counts[-999] +=1
                 reason = f"Primary - {primary.get('Message', 'No message')}"
                 failure_reasons.append(reason)
+                primary_failure = True
 
             # --- Secondary evaluation (only if not suppressed) ---
-            if (
-                secondary
+            if (primary_failure == False 
+                and secondary
                 and not secondary.get("Result", True)
                 and secondary.get("Message") != "Primary Strategy did not pass, secondary not evaluated"
             ):
@@ -98,8 +102,9 @@ def prompt_for_file(default_folder: str = "data/ticker_eval/cleaned") -> str:
     print(f"\nFiles found in {default_folder}:")
     for idx, f in enumerate(files, start=1):
         print(f"{idx}. {f.name}")
-    print(f"{len(files)+1}. Enter custom file path")
-    print(f"{len(files)+2}. Exit")
+    print(f"{len(files)+1}. Current evaluation cache")
+    print(f"{len(files)+2}. Enter custom file path")
+    print(f"{len(files)+3}. Exit")
 
     while True:
         choice = input("Select an option: ").strip()
@@ -107,9 +112,11 @@ def prompt_for_file(default_folder: str = "data/ticker_eval/cleaned") -> str:
             choice = int(choice)
             if 1 <= choice <= len(files):
                 return str(files[choice - 1])
-            elif choice == len(files) + 1:
-                return input("Enter file path: ").strip()
+            elif choice == len(files) +1:
+                return "cache/evaluated.json"
             elif choice == len(files) + 2:
+                return input("Enter file path: ").strip()
+            elif choice == len(files) + 3:
                 return "exit"
         print("Invalid selection, try again.")
 

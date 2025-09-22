@@ -447,7 +447,8 @@ class EtradeConsumer:
         for expiry in expiry_dates:
             params.update({
                 "expiryYear": expiry["year"],
-                "expiryMonth": expiry["month"]
+                "expiryMonth": expiry["month"],
+                "expiryDay": expiry["day"]
             })
 
             try:

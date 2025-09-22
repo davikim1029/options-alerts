@@ -275,13 +275,15 @@ class EtradeConsumerLite:
             "chainType": "CALL",
         }
         
-        month,year = get_valid_month_year()
+        month,year,day = get_valid_month_year_day()
         if month is not None:
             params.update({"expiryMonth": month})
         if year is not None:
             params.update({
                     "expiryYear": year,
             })
+        if day is not None:
+            params.update({"expiryDay",day})
         r = self.get(url, params=params)
         if r is None:
             return None
@@ -314,7 +316,10 @@ class EtradeConsumerLite:
 
 
 # ------------------- Helpers -------------------- #
-def get_valid_month_year():
+import calendar
+
+def get_valid_month_year_day():
+    # Month
     while True:
         month_str = input("Enter month (1-12, or leave blank for None): ").strip()
         if not month_str:  # empty input
@@ -329,6 +334,7 @@ def get_valid_month_year():
         except ValueError:
             print("Invalid input. Please enter a number or leave blank.")
 
+    # Year
     while True:
         year_str = input("Enter year (e.g., 2025, or leave blank for None): ").strip()
         if not year_str:
@@ -343,4 +349,23 @@ def get_valid_month_year():
         except ValueError:
             print("Invalid input. Please enter a valid year or leave blank.")
 
-    return month, year
+    # Day (only if month and year provided)
+    day = None
+    if month is not None and year is not None:
+        _, max_day = calendar.monthrange(year, month)  # (weekday, number_of_days)
+        while True:
+            day_str = input(f"Enter day (1-{max_day}, or leave blank for None): ").strip()
+            if not day_str:
+                day = None
+                break
+            try:
+                day = int(day_str)
+                if 1 <= day <= max_day:
+                    break
+                else:
+                    print(f"Invalid day. Please enter 1–{max_day}, or leave blank for None.")
+            except ValueError:
+                print("Invalid input. Please enter a number or leave blank.")
+
+    return year, month, day
+

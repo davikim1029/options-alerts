@@ -33,29 +33,35 @@ def get_active_tickers(ticker_cache:TickerCache = None):
 
 
 
-
 def get_next_run_date(seconds_to_wait: int) -> str:
+    """
+    Returns the next run time as a string in 12-hour format (AM/PM),
+    adding seconds_to_wait to the current time while rolling over AM/PM half-days.
+    Fully timezone-aware.
+    """
     HALF_DAY = 12 * 60 * 60  # 43,200 seconds
 
-    now = datetime.now().astimezone()
+    now = datetime.now().astimezone()  # aware datetime
+    tz = now.tzinfo  # preserve timezone info
 
-    # seconds into current 12-hour half (treats 12 as 0)
+    # Seconds into current 12-hour half (0–43,199)
     seconds_in_half = (now.hour % 12) * 3600 + now.minute * 60 + now.second
 
-    # add, don't multiply
-    total = seconds_in_half + seconds_to_wait
+    # Total seconds after wait
+    total_seconds = seconds_in_half + seconds_to_wait
 
-    # how many half-days do we roll over, and what's the remainder?
-    carry_halves, rem = divmod(total, HALF_DAY)
+    # How many half-days to roll over, remainder seconds
+    carry_halves, rem_seconds = divmod(total_seconds, HALF_DAY)
 
-    # 0 = AM, 1 = PM for the current time
-    base_half = 0 if now.hour < 12 else 1
-    new_half = (base_half + carry_halves) % 2
+    # Determine current AM/PM half: 0 = AM, 1 = PM
+    current_half = 0 if now.hour < 12 else 1
+    new_half = (current_half + carry_halves) % 2
 
-    # anchor to midnight for AM, noon for PM
-    base = datetime.combine(now.date(), time(0, 0)) if new_half == 0 else \
-           datetime.combine(now.date(), time(12, 0))
+    # Anchor base datetime at midnight (AM) or noon (PM) in same tz
+    base_time = time(0, 0) if new_half == 0 else time(12, 0)
+    base = datetime.combine(now.date(), base_time, tzinfo=tz)
 
-    new_time = base + timedelta(seconds=rem)
-    return new_time.strftime("%I:%M %p")
+    # Add remaining seconds
+    next_run = base + timedelta(seconds=rem_seconds)
 
+    return next_run.strftime("%I:%M %p")

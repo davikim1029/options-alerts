@@ -36,6 +36,7 @@ api_worker_lock = threading.Lock()
 total_tickers = 0
 remaining_ticker_count = 0
 processed_counter = 0
+processed_counter_opts = 0
 total_iterated = 0
 
 token_status = TokenStatus()
@@ -44,12 +45,13 @@ print("[Buy Scanner] Module loaded/reloaded")  # hot reload indicator
 
 def _reset_globals():
     global counter_lock, api_worker_lock
-    global total_tickers, remaining_ticker_count, processed_counter, total_iterated
+    global total_tickers, remaining_ticker_count, processed_counter,processed_counter_opts, total_iterated
     counter_lock = threading.Lock()
     api_worker_lock = threading.Lock()
     total_tickers = 0
     remaining_ticker_count = 0
     processed_counter = 0
+    processed_counter_opts = 0
     total_iterated = 0
 
 
@@ -113,6 +115,14 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
                 eval_result[(primary.name, primary.name, "Result")] = False
                 eval_result[(primary.name, primary.name, "Message")] = str(e)
                 eval_result[("PrimaryStrategy", primary.name, "Score")] = "N/A"
+                
+        with counter_lock:
+            global processed_counter_opts
+            processed_counter_opts += 1
+            if processed_counter_opts % 250 == 0:
+                logger.logMessage(
+                    f"[Buy Scanner] Thread {threading.current_thread().name} | Processed {processed_counter} options."
+                )
 
         if should_buy == False:
             eval_result[("SecondaryStrategy","N/A", "Result")] = False
@@ -161,7 +171,7 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
             last_ticker_cache.add("lastSeen", ticker)
         if processed_counter % 250 == 0 or total_iterated == remaining_ticker_count:
             logger.logMessage(
-                f"[Buy Scanner] Thread {threading.current_thread().name} | Processed {processed_counter}. {remaining_ticker_count - total_iterated} Remaining"
+                f"[Buy Scanner] Thread {threading.current_thread().name} | Processed {processed_counter} tickers. {remaining_ticker_count - total_iterated} Remaining"
             )
 
     strikes_seen = [getattr(o, "strikePrice", 0) for o in options]

@@ -180,7 +180,8 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
       module_dependencies=[
           "services.scanner.buy_scanner",
           "strategy.buy",
-          "services.scanner.scanner_entry"
+          "services.scanner.scanner_entry",
+        "services/scanner/scanner_utils.py"
       ]
       )
     
@@ -199,7 +200,8 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
         daemon=True,
         reload_files=[
             "services/scanner/sell_loop.py",
-            "services/scanner/sell_scanner.py"
+            "services/scanner/sell_scanner.py",
+            "services/scanner/scanner_utils.py"
         ]
     )
 

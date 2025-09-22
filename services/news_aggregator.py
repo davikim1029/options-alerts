@@ -142,11 +142,7 @@ class GoogleNewsClient(NewsClient):
         
         keywords = [ticker, "stock", "shares", "finance"]
         url = self._build_query_url(keywords)
-        try:
-            feed = feedparser.parse(url)
-        except Exception as e:
-            self.logger.logMessage(f"Error with google news: {e}")
-        
+        feed = feedparser.parse(url)
         headlines = []
         for entry in feed.entries:
             headlines.append(
@@ -179,7 +175,7 @@ def aggregate_headlines_smart(ticker: str, rate_cache:RateLimitCache = None) -> 
         try:
             articles = news_client.fetch(ticker)
         except Exception as e:
-            logger.logMessage(f"Error fetching news data: {e}")
+            logger.logMessage(f"Error fetching news from {name}: {e}")
             
         if articles:
             new_articles.extend(articles)

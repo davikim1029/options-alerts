@@ -270,7 +270,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                     options = consumer.get_option_chain(ticker)
                     result_q.put((ticker, options))
                 except TimeoutError as e:
-                    logger.logMessage(f"[Buy Scanner] Timeeout error occurred while processing {ticker}. Exception: {str(e)}, requeuing.")
+                    #logger.logMessage(f"[Buy Scanner] Timeeout error occurred while processing {ticker}. Exception: {str(e)}, requeuing.")
                     fetch_q.put(ticker)
                 except NoExpiryError as e:
                     error = "No expiry found"

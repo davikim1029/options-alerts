@@ -69,14 +69,14 @@ def analyze_failures(file_path: str):
     top_3 = counter.most_common(3)
     print("\n=== Top 3 Failure Reasons ===")
     for idx, (reason, count) in enumerate(top_3, start=1):
-        print(f"{idx}. {reason} ({count} tickers)")
+        print(f"{idx}. {reason} ({count} options)")
 
     # --- Score distribution ---
     print("\n=== Score Distribution ===")
     for score, count in sorted(score_counts.items()):
-        print(f"Score {score}: {count} tickers")
+        print(f"Score {score}: {count} options")
 
-    print(f"\nTotal Failed Tickers: {len(failure_reasons)} / {len(data)}")
+    print(f"\nTotal Failed Options: {len(failure_reasons)} / {len(data)}")
 
     # --- Ask if user wants full breakdown ---
     choice = input("\nWould you like to see the full detailed breakdown? (y/n): ").strip().lower()

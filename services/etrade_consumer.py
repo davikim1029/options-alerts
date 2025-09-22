@@ -13,6 +13,7 @@ from models.option import OptionContract,Product,Quick,OptionGreeks,ProductId
 from services.threading.api_worker import ApiWorker,HttpMethod
 from services.logging.logger_singleton import getLogger
 from services.token_status import TokenStatus
+from services.utils import write_scratch
 
 TOKEN_LIFETIME_DAYS = 90
 
@@ -93,6 +94,7 @@ class EtradeConsumer:
                             error = r.response.text
                         else:
                             error = r.error
+                        write_scratch(f"Error: {error} | Params: {str(params)}")
                         raise (NoOptionsError(error))
    
                     else:
@@ -391,7 +393,8 @@ class EtradeConsumer:
             #self.inspect_response(symbol,response)
             
         except Exception as e:
-            self.handle_exception(e)
+            data = f"Ticker: {symbol}, Params: {params}"
+            self.handle_exception(e,data)
             
         if response.status_code == 204:
             raise NoExpiryError(f"Ticker returned no expiry dates")
@@ -455,7 +458,8 @@ class EtradeConsumer:
                 response = self.get(url, params=params)
                 self.inspect_response(symbol, response)
             except Exception as e:
-                self.handle_exception(e)
+                data = f"Ticker: {symbol}, Params: {str(params)}"
+                self.handle_exception(e,data)
 
             # If we are here means response.ok == true
             local_tz = datetime.now().astimezone().tzinfo
@@ -539,7 +543,9 @@ class EtradeConsumer:
             self.logger.logMessage(f"[ERROR] Failed to parse quote for {symbol}: {e}")
             return None
         
-    def handle_exception(self,e):
+    def handle_exception(self,e, data):
+        if isinstance(e,NoOptionsError):
+            write_scratch(f"Exception: {str(e)} | Data: {data}")
         raise e
     
     def inspect_response(self,symbol, response):

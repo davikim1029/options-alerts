@@ -93,9 +93,12 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
     for opt in options:
         should_buy, osi_key = True, getattr(opt, "osiKey", None)
         processed_osi_keys.add(osi_key)
+        disp = opt.displaySymbol.split(" ")
+        eval_key = f"{disp[0]} - {" ".join(disp[1:])}"
 
         # Primary strategies
         eval_result = {}
+        primary_score = 0
         for primary in buy_strategies["Primary"]:
             try:
                 success, error,score = primary.should_buy(opt, context)
@@ -104,6 +107,7 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
                 eval_result[("PrimaryStrategy", primary.name, "Score")] = score
                 if not success == True:
                     should_buy = False
+                primary_score += score
             except Exception as e:
                 should_buy = False
                 eval_result[(primary.name, primary.name, "Result")] = False
@@ -114,9 +118,12 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
             eval_result[("SecondaryStrategy","N/A", "Result")] = False
             eval_result[("SecondaryStrategy","N/A", "Message")] = "Primary Strategy did not pass, secondary not evaluated"
             eval_result[("SecondaryStrategy", "N/A", "Score")] = "N/A"
+            if eval_cache:
+                eval_cache.add(eval_key, eval_result)
             continue
 
         # Secondary strategies
+        secondary_score = 0
         secondary_failure = ""
         for secondary in buy_strategies["Secondary"]:
             try:
@@ -126,21 +133,26 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
                 eval_result[("SecondaryStrategy", secondary.name, "Score")] = score
                 if not success:
                     secondary_failure += f" | {error}"
+                secondary_score += score
             except Exception as e:
                 eval_result[("SecondaryStrategy",secondary.name, "Result")] = False
                 eval_result[("SecondaryStrategy",secondary.name, "Message")] = str(e)
                 eval_result[("SecondaryStrategy", secondary.name, "Score")] = "N/A"
 
         if secondary_failure != "":
+            if eval_cache:
+                eval_cache.add(eval_key, eval_result)
             continue
 
         if should_buy and secondary_failure == "":
             try:
-                msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {getattr(opt, 'ask', -1) * 100}"
+                msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {getattr(opt, 'ask', -1) * 100} | Scores: P - {primary_score}, S - {secondary_score}"
                 send_alert(msg)
                 buy_alerts.append(msg)
             except Exception as e:
                 logger.logMessage(f"[Buy Scanner] send_alert failed: {e}")
+        if eval_cache:
+            eval_cache.add(eval_key, eval_result)
 
     with counter_lock:
         global processed_counter
@@ -166,8 +178,6 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
         "last_checked": datetime.now().astimezone().isoformat(),
     }
 
-    if eval_cache:
-        eval_cache.add(ticker, eval_result)
     ticker_metadata_cache.add(ticker, metadata)
     return TickerResult(ticker, eval_result, metadata, buy_alerts)
 
@@ -212,9 +222,12 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
 
     remaining_tickers = ticker_keys[start_index:]
     filtered_tickers = []
-    ignore_skipped = bought_skipped = eval_skipped = 0
+    ignore_skipped = bankrupt_skipped = bought_skipped = eval_skipped = 0
 
     for ticker in remaining_tickers:
+        if ticker.upper().endswith("Q"):   # Q Suffix means bankrupt
+            bankrupt_skipped+=1
+            continue    
         if ignore_cache.is_cached(ticker):
             ignore_skipped+=1
             continue
@@ -226,6 +239,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
             continue
         filtered_tickers.append(ticker)
         
+    logger.logMessage(f"{bankrupt_skipped} tickers skipped due to bankruptcy")
     logger.logMessage(f"{ignore_skipped} tickers skipped based on Ignore Cache")
     logger.logMessage(f"{bought_skipped} tickers skipped based on Bought Cache")
     logger.logMessage(f"{eval_skipped} tickers skipped based on Evaluation Cache")

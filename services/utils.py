@@ -6,6 +6,9 @@ from dataclasses import is_dataclass, fields, is_dataclass
 from typing import get_type_hints, List, Union, TypeVar, Dict, Any, Type, Union
 import tempfile
 from pathlib import Path
+import threading
+from datetime import datetime
+
 
 
 def load_json_cache(file_path, max_age_seconds=86400):
@@ -199,3 +202,30 @@ def is_json(value):
         return True
     except json.JSONDecodeError:
         return False
+
+
+# Lock to ensure thread safety
+_scratch_lock = threading.Lock()
+
+# Directory to store scratch logs
+SCRATCH_DIR = Path("scratch_logs")
+SCRATCH_DIR.mkdir(exist_ok=True)
+
+def write_scratch(message: str, filename: str = None):
+    """
+    Append a message to the daily scratch log in a thread-safe manner.
+    
+    :param message: Message to write.
+    :param filename: Optional custom filename (defaults to date-based).
+    """
+    now = datetime.now()
+    # Default filename: scratch_YYYY-MM-DD.log
+    file_path = SCRATCH_DIR / (filename or f"scratch_{now.date()}.log")
+    
+    # Format the message with timestamp
+    line = f"[{now.isoformat()}] {message}\n"
+    
+    # Thread-safe write
+    with _scratch_lock:
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write(line)

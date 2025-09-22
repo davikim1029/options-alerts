@@ -283,7 +283,7 @@ class EtradeConsumerLite:
                     "expiryYear": year,
             })
         if day is not None:
-            params.update({"expiryDay",day})
+            params.update({"expiryDay":day})
         r = self.get(url, params=params)
         if r is None:
             return None

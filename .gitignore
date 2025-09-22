@@ -13,3 +13,4 @@ encryption/etrade_tokens_prod.json
 logs/
 /encryption/token_status.json
 data/
+scratch_logs/

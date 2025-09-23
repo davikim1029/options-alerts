@@ -52,7 +52,9 @@ class CacheManager:
         except TypeError:
             ShutdownManager.init(error_logger=self.logger.logMessage)
             ShutdownManager.register(self.name, lambda reason=None: self._save_cache())
+        self.logger.logMessage(f"Loading {self.name}...")
         self._load_cache()
+        self.logger.logMessage(f"Successfully loaded {self.name}.")
 
     # ----------------------------
     # Cache Persistence

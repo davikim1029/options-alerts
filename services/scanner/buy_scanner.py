@@ -257,7 +257,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
     # Threading config
     scanner_cfg = getattr(caches, "scanner_config", {}) or {}
     num_api_threads = int(max(4,get_job_count()))
-    num_analysis_threads = int(max(4,get_job_count()))
+    num_analysis_threads = int(max(1,get_job_count()))
     api_semaphore_limit = int(scanner_cfg.get("api_semaphore", 8))
 
     fetch_q, result_q = queue.Queue(), queue.Queue()

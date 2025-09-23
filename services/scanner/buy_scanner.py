@@ -84,7 +84,11 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
                 eval_result[("PrimaryStrategy", primary.name, "Score")] = score
                 if not success == True:
                     should_buy = False
-                primary_score += score
+                else:
+                    if score != "N/A":
+                        primary_score += score 
+                    else:
+                        primary_score += 0
             except Exception as e:
                 should_buy = False
                 eval_result[(primary.name, primary.name, "Result")] = False
@@ -118,7 +122,11 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
                 eval_result[("SecondaryStrategy", secondary.name, "Score")] = score
                 if not success:
                     secondary_failure += f" | {error}"
-                secondary_score += score
+                else:
+                    if score != "N/A":
+                        secondary_score += score 
+                    else:
+                        secondary_score += 0
             except Exception as e:
                 eval_result[("SecondaryStrategy",secondary.name, "Result")] = False
                 eval_result[("SecondaryStrategy",secondary.name, "Message")] = str(e)

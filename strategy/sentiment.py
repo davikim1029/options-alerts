@@ -188,10 +188,11 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
         # Convert to +/- scores
         scores = []
         for r in results:
+            score = float(r["score"])
             if r["label"] == "POSITIVE":
-                scores.append(r["score"])
+                scores.append(score)
             elif r["label"] == "NEGATIVE":
-                scores.append(-r["score"])
+                scores.append(-score)
             else:  # some models also return NEUTRAL
                 scores.append(0.0)
 

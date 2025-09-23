@@ -8,6 +8,7 @@ from datetime import datetime
 from services.logging.logger_singleton import getLogger
 from services.helpers import snapshot_module
 from services.utils import set_reload_flag
+from services.core.cache_manager import Caches
 
 class ThreadWrapper(threading.Thread):
     def __init__(self, name, target_func, kwargs=None, daemon=True,
@@ -88,6 +89,8 @@ class ThreadWrapper(threading.Thread):
 class ThreadManager:
     _instance = None
     _lock = threading.Lock()
+    TRIGGER_FILE = Path("cache/cache_reload_trigger.txt").resolve()
+    _caches = Caches()
 
     @classmethod
     def instance(cls, **kwargs):
@@ -96,11 +99,10 @@ class ThreadManager:
                 cls._instance = cls(**kwargs)
         return cls._instance
 
-    def __init__(self, consumer=None, caches=None,stop_event = None, token_pause_event=None):
+    def __init__(self, consumer=None,stop_event = None, token_pause_event=None):
         self._threads = {}
         self._registered_modules = {}
         self._consumer = consumer
-        self._caches = caches
         self._watch_dir = None
         self._file_timestamps = {}
         self._watcher_thread = None
@@ -110,6 +112,10 @@ class ThreadManager:
         self._token_pause_event = token_pause_event
         self._stop_event = stop_event
         self.logger = getLogger()
+        
+        # Ensure the manual reload trigger file exists
+        if not self.TRIGGER_FILE.exists():
+            self.TRIGGER_FILE.touch()
         
         
     # ---------------------------
@@ -190,6 +196,8 @@ class ThreadManager:
         file_timestamps = {}
         for watch_dir in getattr(self, "_watch_dirs", []):
             for root, _, files in os.walk(watch_dir):
+                if "venv" in Path(root).parts:
+                    continue
                 for f in files:
                     if f.endswith(".py"):
                         path = Path(root) / f
@@ -197,6 +205,13 @@ class ThreadManager:
                             file_timestamps[path.resolve()] = path.stat().st_mtime
                         except FileNotFoundError:
                             continue
+                    elif f == self.TRIGGER_FILE.name:
+                        path = Path(root) / f
+                        try:
+                            file_timestamps[path.resolve()] = path.stat().st_mtime
+                        except FileNotFoundError:
+                            continue
+                        
         return file_timestamps
     
     def _watch_loop(self):
@@ -371,6 +386,49 @@ class ThreadManager:
 
             except FileNotFoundError:
                 continue
+            
+            
+        # --- 3. Manual reload trigger ---
+
+        if filepath == self.TRIGGER_FILE:
+            self.logger.logMessage(f"[Watcher] Manual reload triggered by {self.TRIGGER_FILE.name}")
+            
+            for cache in ThreadManager._caches.all_caches():
+                cache._load_cache()
+            
+            for name, wrapper in list(self._threads.items()):
+                self.logger.logMessage(f"[Watcher] Stopping thread {name} for manual reload")
+                wrapper.stop()
+                wrapper.join()
+
+                # Reload module dependencies
+                modules_to_reload = wrapper._module_dependencies + [wrapper._target_func.__module__]
+                self.reload_modules_in_order(modules_to_reload)
+
+                # Recreate thread
+                module = sys.modules[wrapper._target_func.__module__]
+                if not hasattr(wrapper._target_func, "__self__"):  # skip bound methods
+                    new_target = getattr(module, wrapper._target_func.__name__)
+                else:
+                    new_target = wrapper._target_func
+                new_wrapper = ThreadWrapper(
+                    name=wrapper.name,
+                    target_func=new_target,
+                    kwargs=wrapper._kwargs,
+                    daemon=wrapper.daemon,
+                    reload_files=wrapper._reload_files,
+                    parent=wrapper._parent,
+                    update_vars=wrapper._update_vars,
+                    module_dependencies=wrapper._module_dependencies,
+                    token_pause_event=self._token_pause_event
+                )
+                self._threads[name] = new_wrapper
+                new_wrapper.start()
+                self.logger.logMessage(f"[Watcher] Restarted thread {name} after manual trigger")
+
+            set_reload_flag()
+            found = True
+
 
         if not found:
             self.logger.logMessage(

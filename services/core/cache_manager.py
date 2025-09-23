@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 
 class CacheManager:
+    
     """
     Thread-safe cache manager with TTL, autosave, and JSON persistence.
     """
@@ -31,6 +32,7 @@ class CacheManager:
         self.ttl_minutes = ttl_minutes
         self.autosave_interval = autosave_interval
         self.logger = getLogger()
+        
         
         # ------------------------
         # New global scanner config

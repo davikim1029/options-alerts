@@ -110,11 +110,14 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
     if consumer is None:
         consumer = EtradeConsumer(sandbox=False, debug=debug)
 
-    caches = Caches()
+    if (ThreadManager._caches):
+        caches = ThreadManager._caches
+    else: 
+        caches = Caches()
     api_worker_mod.init_worker(consumer,stop_event=stop_event, min_interval=2)
     consumer.apiWorker = api_worker_mod.get_worker()
 
-    manager = ThreadManager.instance(consumer=consumer, caches=caches)
+    manager = ThreadManager.instance(consumer=consumer)
 
     #parent_dir = Path(__file__).parent.resolve()
     root = Path(get_project_root_os()).resolve()

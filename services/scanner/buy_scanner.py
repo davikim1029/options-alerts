@@ -119,9 +119,9 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
         with counter_lock:
             global processed_counter_opts
             processed_counter_opts += 1
-            if processed_counter_opts % 250 == 0:
+            if processed_counter_opts % 2000 == 0:
                 logger.logMessage(
-                    f"[Buy Scanner] Thread {threading.current_thread().name} | Processed {processed_counter} options."
+                    f"[Buy Scanner] Thread {threading.current_thread().name} | Processed {processed_counter_opts} options."
                 )
 
         if should_buy == False:

@@ -175,13 +175,14 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
       daemon=True,
       reload_files=[
           "services/scanner/buy_loop.py",
-          "services/scanner/buy_scanner.py"
+          "services/scanner/buy_scanner.py",
+          "services/scanner/scanner_utils.py"
+
       ],
       module_dependencies=[
           "services.scanner.buy_scanner",
           "strategy.buy",
           "services.scanner.scanner_entry",
-        "services/scanner/scanner_utils.py"
       ]
       )
     

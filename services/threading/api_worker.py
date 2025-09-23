@@ -27,7 +27,7 @@ class HttpResult:
 
 
 class ApiWorker:
-    def __init__(self, consumer,stop_event, min_interval: float = 1.0, default_timeout: float = 30.0, num_workers: int = 4):
+    def __init__(self, consumer,stop_event, min_interval: float = 1.0, default_timeout: float = 30.0, num_workers: int = 8):
         self.consumer = consumer
         self._queue = queue.Queue()
         self._min_interval = min_interval

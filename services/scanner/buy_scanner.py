@@ -3,14 +3,13 @@ import threading
 import queue
 from datetime import datetime, timezone
 from dataclasses import dataclass
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.logging.logger_singleton import getLogger
 from services.scanner.scanner_utils import get_active_tickers
 from services.alerts import send_alert
 from strategy.buy import OptionBuyStrategy
 from strategy.sentiment import SectorSentimentStrategy
 from services.token_status import TokenStatus
-from services.etrade_consumer import TokenExpiredError, NoOptionsError,NoExpiryError
+from services.etrade_consumer import TokenExpiredError, NoOptionsError,NoExpiryError,InvalidSymbolError
 from services.core.cache_manager import (
     LastTickerCache,
     IgnoreTickerCache,
@@ -18,7 +17,7 @@ from services.core.cache_manager import (
     EvalCache,
     TickerMetadata,
 )
-from services.utils import is_json
+from services.utils import is_json, write_scratch,get_job_count
 import json
 
 # ------------------------- Result container -------------------------
@@ -57,30 +56,6 @@ def _reset_globals():
 
 _reset_globals()
 
-
-# ------------------------- Generic parallel runner -------------------------
-def run_parallel(fn, items, max_workers=8, stop_event=None, collect_errors=True):
-    results, errors = [], []
-    lock = threading.Lock()
-    logger = getLogger()
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(fn, item): item for item in items}
-        for fut in as_completed(futures):
-            if stop_event and stop_event.is_set():
-                break
-            try:
-                res = fut.result()
-                if res is not None:
-                    with lock:
-                        results.append(res)
-            except Exception as e:
-                logger.logMessage(f"[run_parallel] {e}")
-                if collect_errors:
-                    errors.append((futures[fut], e))
-                else:
-                    raise
-    return results, errors
 
 # ------------------------- Analysis logic -------------------------
 def analyze_ticker(ticker, options, context, buy_strategies, caches, config, debug=False):
@@ -273,9 +248,9 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
 
     # Threading config
     scanner_cfg = getattr(caches, "scanner_config", {}) or {}
-    num_api_threads = int(scanner_cfg.get("api_threads", 4))
-    num_analysis_threads = int(scanner_cfg.get("analysis_threads", max(2, num_api_threads)))
-    api_semaphore_limit = int(scanner_cfg.get("api_semaphore", 4))
+    num_api_threads = int(max(4,get_job_count()))
+    num_analysis_threads = int(max(4,get_job_count()))
+    api_semaphore_limit = int(scanner_cfg.get("api_semaphore", 8))
 
     fetch_q, result_q = queue.Queue(), queue.Queue()
     api_semaphore = threading.Semaphore(api_semaphore_limit)
@@ -295,7 +270,6 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                     options = consumer.get_option_chain(ticker)
                     result_q.put((ticker, options))
                 except TimeoutError as e:
-                    #logger.logMessage(f"[Buy Scanner] Timeeout error occurred while processing {ticker}. Exception: {str(e)}, requeuing.")
                     fetch_q.put(ticker)
                 except NoExpiryError as e:
                     error = "No expiry found"
@@ -307,6 +281,29 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                                 error = str(e_data["Error"])
                             else:
                                 error = str(e_data)
+                        else:
+                            error = str(e_data)
+                    else:
+                        error = str(e)
+                    if ignore_cache is not None:
+                        ignore_cache.add(ticker, error)
+                
+                except InvalidSymbolError as e:
+                    error = "Invalid Symbol found"
+                    if hasattr(e,"args") and len(e.args) > 0:
+                        e_data = e.args[0]
+                        if is_json(e_data):
+                            e_data = json.loads(e_data)
+                            if hasattr(e_data,"Error"):
+                                error = str(e_data["Error"])
+                            else:
+                                error_obj = e_data.get("Error")
+                                if error_obj is not None:
+                                    code = error_obj.get("code")
+                                    message = error_obj.get("message")
+                                    error = f"Code {code}: {message}"
+                                else:
+                                    error = str(e_data)
                         else:
                             error = str(e_data)
                     else:
@@ -369,6 +366,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                     logger.logMessage(f"[Buy Scanner] analyze_ticker {ticker} error: {e}")
             else:
                 logger.logMessage(f"Ticker {ticker} has no options found but was not caught as an exception")
+                write_scratch(f"Ticker {ticker} has no options found but was not caught as an exception")
             result_q.task_done()
         logger.logMessage(f"[Buy Scanner] Analysis worker {threading.current_thread().name} exiting")
 

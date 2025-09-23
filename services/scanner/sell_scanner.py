@@ -69,7 +69,7 @@ def run_sell_scan(
                 if should_sell:
                     secondary_failure = ""
                     for secondary in sell_strategies["Secondary"]:
-                        success, error = secondary.should_sell(pos)
+                        success, error,score = secondary.should_sell(pos)
                         eval_result[(secondary.name, "Secondary", "Result")] = success
                         eval_result[(secondary.name, "Secondary", "Message")] = error if not success else "Passed"
                         if not success:

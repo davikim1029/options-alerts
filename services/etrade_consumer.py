@@ -94,11 +94,17 @@ class EtradeConsumer:
                             error = r.response.text
                         else:
                             error = r.error
-                        write_scratch(f"Error: {error} | Params: {str(params)}")
-                        raise (NoOptionsError(error))
+                        if "10033" in error:
+                            raise InvalidSymbolError(error)
+                        elif "10031" in error or "10032 in error":
+                            write_scratch(f"Error: {error} | Params: {str(params)}")
+                            raise (NoOptionsError(error))
+                        else:
+                            write_scratch(f"Error: {error} | Params: {str(params)}")
+                            raise Exception(error)
    
                     else:
-                        raise Exception(f"Resopnse received an error. Calculated status code: {status_code}. Response: {json.dumps(r, indent=2, default=str)}")        
+                        raise Exception(f"Response received an error. Calculated status code: {status_code}. Response: {json.dumps(r, indent=2, default=str)}")        
             else:
                 raise Exception(f"No response received for {url}")
         else:
@@ -561,9 +567,9 @@ class EtradeConsumer:
                 error = json.loads(response.text)
                 error_code = error["Error"]["code"]
 
-                if error_code == 10033:
+                if error_code == 10033 or "10033" in error:
                     raise InvalidSymbolError(f"Invalid symbol for {symbol}")
-                elif error_code in (10031, 10032):
+                elif error_code in (10031, 10032) or "10031" in error or "10032" in error:
                     raise NoOptionsError(f"No Options available for ticker: {symbol}")
                 else:
                     raise Exception(error)

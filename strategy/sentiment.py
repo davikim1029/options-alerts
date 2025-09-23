@@ -127,7 +127,8 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
                 return False, error,"N/A"
             elif side == "sell" and self.is_sector_in_uptrend(etf_symbol):
                 # Uptrend suggests hold; bearish suggests sell
-                pass  # we’ll interpret in sell logic
+                error = f"[SectorSentiment:{side}] Sector ETF {etf_symbol} is bearish."
+                return False, error,"N/A"
 
             # 4. News sentiment evaluation
             if self._news_cache is not None and self._news_cache.is_cached(symbol):
@@ -149,7 +150,7 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
 
 
             # Default: no signal
-            return True if side == "buy" else False, "No Signaling","N/A"
+            return True,"No Signaling","N/A" if side == "buy" else False, "No Signaling","N/A"
 
         except Exception as e:
             error = f"[SectorSentiment:{side} error] {e}"
@@ -218,6 +219,6 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
         if isinstance(obj, OptionContract):
             return obj.symbol
         elif isinstance(obj, Position):
-            return obj.Product.symbol
+            return obj.Product.get("symbol")
         else:
             raise TypeError(f"Unexpected type: {type(x)}")

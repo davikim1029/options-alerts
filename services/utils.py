@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 import threading
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 
@@ -229,3 +230,40 @@ def write_scratch(message: str, filename: str = None):
     with _scratch_lock:
         with open(file_path, "a", encoding="utf-8") as f:
             f.write(line)
+
+
+
+def get_job_count():
+    cores = os.cpu_count() or 1
+    # You can tune the scaling here:
+    if cores <= 4:
+        return cores  # Pi or small system → use all cores
+    else:
+        return min(8, cores)  # Mac or bigger system → cap at 8
+
+
+
+# ------------------------- Generic parallel runner -------------------------
+def run_parallel(fn, items, stop_event=None, collect_errors=True):
+    results, errors = [], []
+    lock = threading.Lock()
+    logger = getLogger()
+    
+    max_workers = int(max(1,get_job_count()))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(fn, item): item for item in items}
+        for fut in as_completed(futures):
+            if stop_event and stop_event.is_set():
+                break
+            try:
+                res = fut.result()
+                if res is not None:
+                    with lock:
+                        results.append(res)
+            except Exception as e:
+                logger.logMessage(f"[run_parallel] {e}")
+                if collect_errors:
+                    errors.append((futures[fut], e))
+                else:
+                    raise
+    return results, errors

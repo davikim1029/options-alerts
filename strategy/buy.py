@@ -116,7 +116,7 @@ class OptionBuyStrategy(BuyStrategy):
             # ========================
             # Final Decision
             # ========================
-            threshold = 12  # tune as needed, higher is more strict
+            threshold = 11  # tune as needed, higher is more strict
             summary = f"Score={score}, Threshold={threshold} | " + " | ".join(breakdown)
 
             if score >= threshold:

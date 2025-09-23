@@ -8,7 +8,8 @@ cache/
 **/*etrade_token*
 *etrade_token*
 models/.DS_Store
-encryption/
+encryption/*.enc
+encryption/*.key
 encryption/etrade_tokens*
 encryption/etrade_tokens_prod.json
 logs/

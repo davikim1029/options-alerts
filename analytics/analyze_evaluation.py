@@ -1,7 +1,18 @@
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from datetime import datetime
+
+
+def normalize_score(score):
+    """Convert score to int if possible, else None."""
+    if score in (None, "N/A"):
+        return None
+    try:
+        return int(score)
+    except (ValueError, TypeError):
+        return None
+
 
 def analyze_failures(file_path: str):
     path = Path(file_path)
@@ -12,49 +23,50 @@ def analyze_failures(file_path: str):
         data = json.load(f)
 
     failure_reasons = []
-    score_counts = Counter()
+    score_counts = defaultdict(lambda: defaultdict(int))
+    secondary_breakdown = defaultdict(Counter)  # primary_score -> Counter of reasons
 
     for ticker, info in data.items():
         try:
             # --- Handle duplicates (list of evals) ---
             if isinstance(info, list):
-                # Pick the latest evaluation based on timestamp
                 latest_eval = max(
                     info,
                     key=lambda e: datetime.fromisoformat(e.get("Timestamp", "1970-01-01T00:00:00"))
                 )
                 value = latest_eval.get("Value", {})
             elif isinstance(info, dict):
-                # Old format (single dict)
                 value = info.get("Value", {})
             else:
-                continue  # Skip unexpected formats
+                continue
 
             primary = value.get("PrimaryStrategy", {}).get("OptionBuyStrategy", {})
             secondary = list(value.get("SecondaryStrategy", {}).values())[0] if value.get("SecondaryStrategy") else {}
 
             primary_failure = False
+            primary_score = normalize_score(primary.get("Score"))
+
             # --- Primary evaluation ---
             if not primary.get("Result", True):
-                score = primary.get("Score", "N/A")
-                if score != "N/A":
-                    score_counts[score] += 1
-                else:
-                    score_counts[-999] +=1
+                score_counts["Primary"][primary_score] += 1
                 reason = f"Primary - {primary.get('Message', 'No message')}"
                 failure_reasons.append(reason)
                 primary_failure = True
 
-            # --- Secondary evaluation (only if not suppressed) ---
-            if (primary_failure == False 
+            # --- Secondary evaluation ---
+            if (not primary_failure
                 and secondary
                 and not secondary.get("Result", True)
                 and secondary.get("Message") != "Primary Strategy did not pass, secondary not evaluated"
             ):
-                score = secondary.get("Score", "N/A")
-                if score != "N/A":
-                    score_counts[score] += 1
-                failure_reasons.append(f"Secondary - {secondary.get('Message', 'No message')}")
+                # Secondary groups by *primary* score
+                if primary_score is not None:
+                    reason = secondary.get("Message", "No message")
+                    secondary_breakdown[primary_score][reason] += 1
+                    failure_reasons.append(f"Secondary - {reason}")
+                else:
+                    score_counts["Secondary"][None] += 1
+                    failure_reasons.append(f"Secondary - {secondary.get('Message', 'No message')}")
 
         except Exception as e:
             print(f"Error processing {ticker}: {e}")
@@ -66,15 +78,25 @@ def analyze_failures(file_path: str):
         return counter
 
     # --- Top 3 failure reasons ---
-    top_3 = counter.most_common(3)
     print("\n=== Top 3 Failure Reasons ===")
-    for idx, (reason, count) in enumerate(top_3, start=1):
+    for idx, (reason, count) in enumerate(counter.most_common(3), start=1):
         print(f"{idx}. {reason} ({count} options)")
 
-    # --- Score distribution ---
-    print("\n=== Score Distribution ===")
-    for score, count in sorted(score_counts.items()):
-        print(f"Score {score}: {count} options")
+    # --- Score distributions ---
+    print("\n=== Primary Score Distribution ===")
+    for score, count in sorted(score_counts["Primary"].items(), key=lambda x: (x[0] is None, x[0])):
+        label = "N/A" if score is None else score
+        print(f"Score {label}: {count} options")
+
+    print("\n=== Secondary Score Distribution (by Primary Score) ===")
+    for score in sorted(secondary_breakdown.keys(), key=lambda x: (x is None, x)):
+        label = "N/A" if score is None else score
+        total = sum(secondary_breakdown[score].values())
+        print(f"\nPrimary Score {label}: {total} secondary failures")
+        # show top 3 reasons
+        for reason, count in secondary_breakdown[score].most_common(3):
+            pct = (count / total) * 100 if total > 0 else 0
+            print(f"  {reason}: {count} ({pct:.1f}%)")
 
     print(f"\nTotal Failed Options: {len(failure_reasons)} / {len(data)}")
 
@@ -85,10 +107,22 @@ def analyze_failures(file_path: str):
 
     # --- Full breakdown ---
     print("\n=== Full Breakdown by Reason ===")
-    for reason, count in sorted(counter.items(), key=lambda x: (0 if x[0].startswith("Primary") else 1, -x[1])):
+    for reason, count in sorted(
+        counter.items(),
+        key=lambda x: (0 if x[0].startswith("Primary") else 1, -x[1])
+    ):
         print(f"{reason}: {count}")
 
+    print("\n=== Full Secondary Breakdown by Primary Score ===")
+    for score in sorted(secondary_breakdown.keys(), key=lambda x: (x is None, x)):
+        label = "N/A" if score is None else score
+        print(f"\nPrimary Score {label}:")
+        for reason, count in sorted(secondary_breakdown[score].items(), key=lambda x: -x[1]):
+            print(f"  {reason}: {count}")
+
     return counter
+
+
 
 
 def prompt_for_file(default_folder: str = "data/ticker_eval/cleaned") -> str:
@@ -121,6 +155,73 @@ def prompt_for_file(default_folder: str = "data/ticker_eval/cleaned") -> str:
         print("Invalid selection, try again.")
 
 
+def analyze_secondary_outcomes(file_path: str, top_n: int = 3):
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    with open(path, "r") as f:
+        data = json.load(f)
+
+    secondary_passed = 0
+    failure_reasons = []
+
+    for ticker, info in data.items():
+        try:
+            # Handle duplicates (list of evals)
+            if isinstance(info, list):
+                latest_eval = max(
+                    info,
+                    key=lambda e: datetime.fromisoformat(e.get("Timestamp", "1970-01-01T00:00:00"))
+                )
+                value = latest_eval.get("Value", {})
+            elif isinstance(info, dict):
+                value = info.get("Value", {})
+            else:
+                continue
+
+            primary = value.get("PrimaryStrategy", {}).get("OptionBuyStrategy", {})
+            secondary = list(value.get("SecondaryStrategy", {}).values())[0] if value.get("SecondaryStrategy") else {}
+
+            # Skip if primary failed
+            if not primary.get("Result", True):
+                continue
+
+            # --- Primary passed: check secondary ---
+            if secondary.get("Result", False):
+                secondary_passed += 1
+            else:
+                reason = secondary.get("Message", "Unknown reason")
+                failure_reasons.append(reason)
+
+        except Exception as e:
+            print(f"Error processing {ticker}: {e}")
+
+    counter = Counter(failure_reasons)
+    total_primary_passed = secondary_passed + sum(counter.values())
+
+    print("\n=== Secondary Strategy Analysis ===")
+    print(f"Total with Primary Passed: {total_primary_passed}")
+    print(f"Secondary Passed: {secondary_passed}")
+    print(f"Secondary Failed: {sum(counter.values())}")
+
+    if counter:
+        print(f"\n--- Top {top_n} Secondary Failure Reasons ---")
+        for idx, (reason, count) in enumerate(counter.most_common(top_n), start=1):
+            print(f"{idx}. {reason} ({count} options)")
+
+        choice = input("\nWould you like to see the full detailed breakdown? (y/n): ").strip().lower()
+        if choice == "y":
+            print("\n=== Full Breakdown of Secondary Failures ===")
+            for reason, count in sorted(counter.items(), key=lambda x: -x[1]):
+                print(f"{reason}: {count}")
+
+    return {
+        "total_primary_passed": total_primary_passed,
+        "secondary_passed": secondary_passed,
+        "secondary_failed": dict(counter)
+    }
+    
 def analysis_entry():
     found = False
     while not found:
@@ -136,4 +237,8 @@ def analysis_entry():
             print(e)
             continue
         found = True
+    print("\n--- Primary Analysis ---")
     analyze_failures(file_path)
+
+    print("\n--- Secondary Analysis ---")
+    analyze_secondary_outcomes(file_path)

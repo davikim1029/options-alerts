@@ -67,12 +67,18 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
     ticker_metadata_cache = getattr(caches, "ticker_metadata", None) or TickerMetadata()
 
     processed_osi_keys = set()
+    eval_keys = []
     for opt in options:
         should_buy, osi_key = True, getattr(opt, "osiKey", None)
         processed_osi_keys.add(osi_key)
         disp = opt.displaySymbol.split(" ")
-        eval_key = f"{disp[0]} - {' '.join(disp[1:])}"
-
+        eval_key = f"{disp[0]} - {' '.join(disp[1:])}"      
+        eval_keys.append(eval_key)
+        
+        #Don't reprocess if we've already processed this recently
+        if eval_cache.is_cached(eval_key):
+            continue
+                    
         # Primary strategies
         eval_result = {}
         primary_score = 0
@@ -164,6 +170,7 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
     ]
 
     metadata = {
+        "eval_keys":eval_keys,
         "min_strike": min(strikes_seen, default=None),
         "max_strike": max(strikes_seen, default=None),
         "expirations": expirations_seen,
@@ -226,9 +233,6 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
             continue
         if bought_cache.is_cached(ticker):
             bought_skipped+=1
-            continue
-        if eval_cache.is_cached(ticker):
-            eval_skipped+=1
             continue
         filtered_tickers.append(ticker)
         

@@ -5,6 +5,7 @@ from models.option import OptionContract
 import yfinance as yf
 import requests
 import os
+import re
 from services.news_aggregator import aggregate_headlines_smart
 from models.generated.Position import Position
 from services.core.cache_manager import NewsApiCache,RateLimitCache
@@ -66,18 +67,73 @@ def getSentimentPipeline():
 
 
 ETF_LOOKUP = {
-    "Technology": "XLK",
-    "Health": "XLV",
-    "Financial": "XLF",
-    "Energy": "XLE",
-    "Consumer Discretionary": "XLY",
-    "Consumer Staples": "XLP",
-    "Utilities": "XLU",
-    "Industrials": "XLI",
-    "Real Estate": "XLRE",
-    "Materials": "XLB",
-    "Communication": "XLC"
+    # Technology
+    "technology": "XLK",
+    "information technology": "XLK",
+    "tech": "XLK",
+
+    # Health
+    "health": "XLV",
+    "healthcare": "XLV",
+    "pharmaceuticals": "XLV",
+    "biotech": "XLV",
+
+    # Financials
+    "financial": "XLF",
+    "banks": "XLF",
+    "insurance": "XLF",
+
+    # Energy
+    "energy": "XLE",
+    "oil": "XLE",
+    "gas": "XLE",
+
+    # Consumer Discretionary
+    "consumer discretionary": "XLY",
+    "consumer cyclical": "XLY",
+    "consumer defensive": "XLY",
+    "automobiles": "XLY",
+    "automobile manufacturers": "XLY",
+    "retail": "XLY",
+    "luxury": "XLY",
+
+    # Consumer Staples
+    "consumer staples": "XLP",
+    "food": "XLP",
+    "beverage": "XLP",
+    "household products": "XLP",
+
+    # Utilities
+    "utilities": "XLU",
+    "power": "XLU",
+    "electric": "XLU",
+    "gas distribution": "XLU",
+
+    # Industrials
+    "industrials": "XLI",
+    "manufacturing": "XLI",
+    "aerospace": "XLI",
+    "transportation": "XLI",
+    "construction": "XLI",
+
+    # Real Estate
+    "real estate": "XLRE",
+    "reit": "XLRE",
+    "property": "XLRE",
+
+    # Materials
+    "materials": "XLB",
+    "metals": "XLB",
+    "chemicals": "XLB",
+    "mining": "XLB",
+
+    # Communication
+    "communication": "XLC",
+    "telecom": "XLC",
+    "media": "XLC",
+    "entertainment": "XLC"
 }
+
 
 
 class SectorSentimentStrategy(BuyStrategy,SellStrategy):
@@ -112,13 +168,13 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
             ticker_info = yf.Ticker(symbol).info
             sector = ticker_info.get("sector")
             if not sector:
-                error = f"[SectorSentiment:{side}] No sector for {symbol}"
+                error = f"[SectorSentiment:{side}] No sector found"
                 return False, error,"N/A"
 
             # 2. Map sector to ETF
             etf_symbol = self.match_sector_to_etf(sector)
             if not etf_symbol:
-                error = f"[SectorSentiment:{side}] No ETF match for {sector}"
+                error = f"[SectorSentiment:{side}] No ETF match found"
                 return False, error,"N/A"
 
             # 3. ETF trend evaluation
@@ -142,11 +198,11 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
                 self.add_to_cache(symbol,headlines,avg_sent)
             if avg_sent is not None:
                 if avg_sent < -0.2:
-                    return False, f"SectorSentiment:{side}] Bearish sentiment on {symbol}: {avg_sent:.2f}","N/A"
+                    return False, f"SectorSentiment:{side}] Bearish sentiment","N/A"
                 elif avg_sent > 0.2:
-                    return True, f"SectorSentiment:{side}] Bullish sentiment on {symbol}: {avg_sent:.2f}","N/A"
+                    return True, f"SectorSentiment:{side}] Bullish sentiment","N/A"
                 else:
-                    return False, f"SectorSentiment:{side}] Neutral sentiment on {symbol}: {avg_sent:.2f}","N/A"
+                    return False, f"SectorSentiment:{side}] Neutral sentiment","N/A"
 
 
             # Default: no signal
@@ -157,12 +213,24 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
             return False, error,"N/A"
 
     # === HELPER METHODS ===
-    def match_sector_to_etf(self, sector: str) -> str:
-        for key, val in ETF_LOOKUP.items():
-            if key.lower() in sector.lower():
-                return val
-        return None
+    def normalize_sector(self,sector: str) -> str:
+        """Normalize string for matching (lowercase, strip non-alpha)."""
+        return re.sub(r'[^a-z]', '', sector.lower())
 
+
+    def match_sector_to_etf(self, sector: str) -> str:
+        """Return ETF symbol for a given sector, fallback to SPY if no match."""
+        sector_norm = self.normalize_sector(sector)
+        for key, val in ETF_LOOKUP.items():
+            if self.normalize_sector(key) in sector_norm:
+                return val
+
+        # Fallback if no match
+        logger = getLogger()
+        logger.logMessage(f"[WARN] No ETF match found for sector: '{sector}', defaulting to SPY")
+        return "SPY"
+    
+    
     def is_sector_in_uptrend(self, etf_symbol: str) -> bool:
         etf = yf.Ticker(etf_symbol)
         hist = etf.history(period="1mo")

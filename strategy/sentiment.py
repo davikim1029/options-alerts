@@ -197,9 +197,9 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
                 avg_sent = self.average_news_sentiment(headlines)
                 self.add_to_cache(symbol,headlines,avg_sent)
             if avg_sent is not None:
-                if avg_sent < -0.2:
+                if avg_sent < -0.1:
                     return False, f"SectorSentiment:{side}] Bearish sentiment","N/A"
-                elif avg_sent > 0.2:
+                elif avg_sent > 0.1:
                     return True, f"SectorSentiment:{side}] Bullish sentiment","N/A"
                 else:
                     return False, f"SectorSentiment:{side}] Neutral sentiment","N/A"

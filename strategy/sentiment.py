@@ -205,12 +205,20 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
 
             # 4. News sentiment evaluation
 
-            headlines = aggregate_headlines_smart(ticker=symbol,ticker_name=name,rate_cache=self._rate_cache,news_cache=self._news_cache)
-            if headlines == []:
-                error = f"[SectorSentiment:{side}] No Headline data found"
-                return False,error,"N/A"
-            avg_sent = self.average_news_sentiment(headlines)
-            self.add_to_cache(symbol,headlines,avg_sent)
+            headlines,avg_sent = self.get_cached_info(symbol)
+            if headlines is None or avg_sent is None:
+                if headlines is None:
+                    headlines = aggregate_headlines_smart(ticker=symbol,ticker_name=name,rate_cache=self._rate_cache)                
+            
+                if headlines == []:
+                    error = f"[SectorSentiment:{side}] No Headline data found"
+                    return False,error,"N/A"
+                
+                if avg_sent is None:
+                    avg_sent = self.average_news_sentiment(headlines)
+                
+                self.add_to_cache(symbol,headlines,avg_sent)
+            
             if avg_sent is not None:
                 if avg_sent < -0.1:
                     return False, f"SectorSentiment:{side}] Bearish sentiment","N/A"

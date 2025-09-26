@@ -1,7 +1,7 @@
 import os
 import requests
 import feedparser
-from services.core.cache_manager import RateLimitCache,NewsApiCache
+from services.core.cache_manager import RateLimitCache
 from typing import List, Dict, Optional
 from services.logging.logger_singleton import getLogger
 from dataclasses import dataclass
@@ -37,9 +37,8 @@ class NewsClient:
     
 
 class NewsAPIClient(NewsClient):
-    def __init__(self,rate_cache,news_cache,logger):
+    def __init__(self,rate_cache,logger):
         self.rate_cache = rate_cache
-        self.news_cache = news_cache
         self.logger = logger
         api_key = os.getenv("NEWSAPI_KEY")
         if not api_key:
@@ -47,11 +46,7 @@ class NewsAPIClient(NewsClient):
         self.api_key = api_key
 
     def fetch(self, ticker: str,ticker_name:str) -> Optional[List[Dict]]:
-        
-        cache_key = f"NewsAPI:{ticker}"
-        if self.news_cache is not None and self.news_cache.is_cached(cache_key):
-            return self.news_cache.get(cache_key)
-        
+            
         if self.rate_cache is not None and is_rate_limited(self.rate_cache,"NewsAPI"):
             return []
         
@@ -94,23 +89,16 @@ class NewsAPIClient(NewsClient):
                     url=r.get("url")
                 )
             )
-        if len(headlines) > 0:
-            self.news_cache.add(cache_key,headlines)
         return headlines  
 
 
 class NewsDataClient(NewsClient):
-    def __init__(self,rate_cache:RateLimitCache,news_cache:NewsApiCache,logger):
+    def __init__(self,rate_cache:RateLimitCache,logger):
         self.logger = logger
         self.rate_cache = rate_cache
-        self.news_cache = news_cache
         self.api_key = os.getenv("NEWSDATA_KEY")
 
     def fetch(self, ticker: str,ticker_name:str) -> Optional[List[Dict]]:
-        cache_key = f"NewsData:{ticker}"
-        if self.news_cache is not None and self.news_cache.is_cached(cache_key):
-            return self.news_cache.get(cache_key)
-        
         if self.rate_cache is not None and is_rate_limited(self.rate_cache,"NewsData"):
             return []
         
@@ -156,15 +144,12 @@ class NewsDataClient(NewsClient):
                     url=r.get("link")
                 )
             )
-        if len(headlines) > 0:
-            self.news_cache.add(cache_key,headlines)
         return headlines    
 
 class GoogleNewsClient(NewsClient):
-    def __init__(self,rate_cache,news_cache,logger):
+    def __init__(self,rate_cache,logger):
         self.logger=logger
         self.rate_cache = rate_cache
-        self.news_cache = news_cache
         
     def _build_query_url(self, keywords: list[str]) -> str:
         """
@@ -180,10 +165,6 @@ class GoogleNewsClient(NewsClient):
         
         
     def fetch(self, ticker: str,ticker_name:str) -> List[Dict]:
-        cache_key = f"GoogleNews:{ticker}"
-
-        if self.news_cache is not None and self.news_cache.is_cached(cache_key):
-            return self.news_cache.get(cache_key)
         
         keywords = [ticker_name, "stock", "shares", "finance"]
         url = self._build_query_url(keywords)
@@ -198,20 +179,18 @@ class GoogleNewsClient(NewsClient):
                     url=entry.link
                 )
             )
-        if len(headlines) > 0:
-            self.news_cache.add(cache_key,headlines)
         return headlines 
 
 
 # --------------------------
 # Smart Aggregator
 # --------------------------
-def aggregate_headlines_smart(ticker: str,ticker_name: str, rate_cache:RateLimitCache = None, news_cache:NewsApiCache = None) -> List[Dict]:
+def aggregate_headlines_smart(ticker: str,ticker_name: str, rate_cache:RateLimitCache = None) -> List[Dict]:
     logger = getLogger()
     sources_priority = [
-        ("NewsAPI", NewsAPIClient(rate_cache=rate_cache,news_cache=news_cache,logger=logger), True),
-        ("NewsData", NewsDataClient(rate_cache=rate_cache,news_cache=news_cache,logger=logger), True),
-        ("GoogleNewsRSS", GoogleNewsClient(rate_cache=rate_cache,news_cache=news_cache,logger=logger), False),
+        ("NewsAPI", NewsAPIClient(rate_cache=rate_cache,logger=logger), True),
+        ("NewsData", NewsDataClient(rate_cache=rate_cache,logger=logger), True),
+        ("GoogleNewsRSS", GoogleNewsClient(rate_cache=rate_cache,logger=logger), False),
     ]
 
     new_articles = []

@@ -1,11 +1,12 @@
 import os
 import requests
 import feedparser
-from services.core.cache_manager import RateLimitCache
+from services.core.cache_manager import RateLimitCache,NewsApiCache
 from typing import List, Dict, Optional
 from services.logging.logger_singleton import getLogger
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
+from services.scanner.scanner_utils import is_rate_limited
 
 
 # --------------------------
@@ -36,8 +37,9 @@ class NewsClient:
     
 
 class NewsAPIClient(NewsClient):
-    def __init__(self,rate_cache,logger):
+    def __init__(self,rate_cache,news_cache,logger):
         self.rate_cache = rate_cache
+        self.news_cache = news_cache
         self.logger = logger
         api_key = os.getenv("NEWSAPI_KEY")
         if not api_key:
@@ -46,9 +48,14 @@ class NewsAPIClient(NewsClient):
 
     def fetch(self, ticker: str,ticker_name:str) -> Optional[List[Dict]]:
         
+        cache_key = f"NewsAPI:{ticker}"
+        if self.news_cache is not None and self.news_cache.is_cached(cache_key):
+            return self.news_cache.get(cache_key)
+        
+        if self.rate_cache is not None and is_rate_limited(self.rate_cache,"NewsAPI"):
+            return []
+        
         news_sources_str = "bloomberg,reuters,the-wall-street-journal,cnbc,marketwatch,the-new-york-times,financial-times,forbes,business-insider,yahoo-news"
-        if self.rate_cache is not None and self.rate_cache.is_cached("NewsAPI"):
-            return None
 
         url = "https://newsapi.org/v2/everything"        
         
@@ -71,7 +78,10 @@ class NewsAPIClient(NewsClient):
                 self.rate_cache._save_cache()
             return None
         if resp.status_code != 200:
-            return None
+            if hasattr(resp.content):
+                raise Exception(str(resp.content))
+            else:
+                raise Exception(str(resp))
         
         results = resp.json().get("articles", [])
         headlines = []
@@ -84,26 +94,29 @@ class NewsAPIClient(NewsClient):
                     url=r.get("url")
                 )
             )
+        if len(headlines) > 0:
+            self.news_cache.add(cache_key,headlines)
         return headlines  
 
 
 class NewsDataClient(NewsClient):
-    def __init__(self,rate_cache:RateLimitCache,logger):
+    def __init__(self,rate_cache:RateLimitCache,news_cache:NewsApiCache,logger):
         self.logger = logger
         self.rate_cache = rate_cache
+        self.news_cache = news_cache
         self.api_key = os.getenv("NEWSDATA_KEY")
 
     def fetch(self, ticker: str,ticker_name:str) -> Optional[List[Dict]]:
-        if self.rate_cache is not None and self.rate_cache.is_cached("NewsData"):
-            return None
+        cache_key = f"NewsData:{ticker}"
+        if self.news_cache is not None and self.news_cache.is_cached(cache_key):
+            return self.news_cache.get(cache_key)
+        
+        if self.rate_cache is not None and is_rate_limited(self.rate_cache,"NewsData"):
+            return []
         
         categories = [
             "business",
             "technology",
-            "economy",
-            "finance",
-            "energy",
-            "politics"
         ]
         categories_str = ",".join(categories)
 
@@ -127,7 +140,10 @@ class NewsDataClient(NewsClient):
                 
             return None
         if resp.status_code != 200:
-            return None
+            if hasattr(resp.content):
+                raise Exception(str(resp.content))
+            else:
+                raise Exception(str(resp))
         
         results = resp.json().get("results", [])
         headlines = []
@@ -140,12 +156,15 @@ class NewsDataClient(NewsClient):
                     url=r.get("link")
                 )
             )
+        if len(headlines) > 0:
+            self.news_cache.add(cache_key,headlines)
         return headlines    
 
 class GoogleNewsClient(NewsClient):
-    def __init__(self,rate_cache,logger):
+    def __init__(self,rate_cache,news_cache,logger):
         self.logger=logger
         self.rate_cache = rate_cache
+        self.news_cache = news_cache
         
     def _build_query_url(self, keywords: list[str]) -> str:
         """
@@ -161,9 +180,10 @@ class GoogleNewsClient(NewsClient):
         
         
     def fetch(self, ticker: str,ticker_name:str) -> List[Dict]:
-        cache_key = f"GoogleNews"
-        if self.rate_cache is not None and self.rate_cache.is_cached(cache_key):
-            return self.rate_cache.get(cache_key)
+        cache_key = f"GoogleNews:{ticker}"
+
+        if self.news_cache is not None and self.news_cache.is_cached(cache_key):
+            return self.news_cache.get(cache_key)
         
         keywords = [ticker_name, "stock", "shares", "finance"]
         url = self._build_query_url(keywords)
@@ -178,31 +198,30 @@ class GoogleNewsClient(NewsClient):
                     url=entry.link
                 )
             )
+        if len(headlines) > 0:
+            self.news_cache.add(cache_key,headlines)
         return headlines 
 
 
 # --------------------------
 # Smart Aggregator
 # --------------------------
-def aggregate_headlines_smart(ticker: str,ticker_name: str, rate_cache:RateLimitCache = None) -> List[Dict]:
+def aggregate_headlines_smart(ticker: str,ticker_name: str, rate_cache:RateLimitCache = None, news_cache:NewsApiCache = None) -> List[Dict]:
     logger = getLogger()
     sources_priority = [
-        ("NewsAPI", NewsAPIClient(rate_cache=rate_cache,logger=logger), True),
-        ("NewsData", NewsDataClient(rate_cache=rate_cache,logger=logger), True),
-        ("GoogleNewsRSS", GoogleNewsClient(rate_cache=rate_cache,logger=logger), False),
+        ("NewsAPI", NewsAPIClient(rate_cache=rate_cache,news_cache=news_cache,logger=logger), True),
+        ("NewsData", NewsDataClient(rate_cache=rate_cache,news_cache=news_cache,logger=logger), True),
+        ("GoogleNewsRSS", GoogleNewsClient(rate_cache=rate_cache,news_cache=news_cache,logger=logger), False),
     ]
 
     new_articles = []
-    for name, news_client, rate_limited in sources_priority:
-        if rate_cache is not None and rate_cache.is_cached(f"{name}:{ticker}"):
-            continue
-        
+    for name, news_client, rate_limited in sources_priority:  
         try:
-            articles = news_client.fetch(ticker)
+            articles = news_client.fetch(ticker=ticker,ticker_name=ticker_name)
         except Exception as e:
             logger.logMessage(f"Error fetching news from {name}: {e}")
             
-        if articles:
+        if articles is not None and len(articles) > 0:
             new_articles.extend(articles)
 
     return new_articles

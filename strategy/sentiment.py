@@ -1,16 +1,19 @@
 # strategy/sector_sentiment.py
 
 from strategy.base import BuyStrategy,SellStrategy
+#import traceback
 from models.option import OptionContract
 import yfinance as yf
 import requests
 import os
 import re
+from services.scanner.scanner_utils import wait_rate_limit
 from services.news_aggregator import aggregate_headlines_smart
 from models.generated.Position import Position
-from services.core.cache_manager import NewsApiCache,RateLimitCache
+from services.core.cache_manager import NewsApiCache,RateLimitCache,YFinanceTickerCache
 from typing import Optional,Union
 from services.logging.logger_singleton import getLogger
+from services.scanner.YFinanceFetcher import YFinanceFetcher, YFTooManyAttempts
 import transformers
 import threading
 
@@ -138,9 +141,10 @@ ETF_LOOKUP = {
 
 class SectorSentimentStrategy(BuyStrategy,SellStrategy):
     
-    def __init__(self, news_cache:NewsApiCache, rate_cache:RateLimitCache ):
-        self._news_cache = news_cache
-        self._rate_cache = rate_cache
+    def __init__(self, caches):
+        self._news_cache = getattr(caches, "news", None)
+        self._rate_cache = getattr(caches, "rate", None)
+        self._yfin_cache = getattr(caches, "yfin", None)
         self.sentiment_pipeline = getSentimentPipeline()
     
     """
@@ -153,19 +157,32 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
         return self.__class__.__name__
 
     # === BUY LOGIC ===
-    def should_buy(self, option: OptionContract, context: dict) -> tuple[bool, str,str]:
-        return self._evaluate(option, side="buy")
+    def should_buy(self, option: OptionContract,name: str, context: dict) -> tuple[bool, str,str]:
+        return self._evaluate(option,name, side="buy")
 
     # === SELL LOGIC ===
     def should_sell(self, position: Position) -> tuple[bool, str,str]:
-        return self._evaluate(position, side="sell")
+        return self._evaluate(position,"", side="sell")
 
     # === INTERNAL COMMON LOGIC ===
-    def _evaluate(self, securityObj: Union[OptionContract,Position], side: str) -> tuple[bool, str,str]:
+    def _evaluate(self, securityObj: Union[OptionContract,Position],name, side: str) -> tuple[bool, str,str]:
         symbol = self.get_symbol(securityObj)
         try:
             # 1. Get sector info
-            ticker_info = yf.Ticker(symbol).info
+            if self._yfin_cache.is_cached(symbol):
+                ticker_info = self._yfin_cache.get(symbol)
+            else: 
+                try: 
+                    fetcher = YFinanceFetcher(self._rate_cache)
+                    ticker_info = fetcher.fetch_ticker(symbol)
+                    self._yfin_cache.add(symbol,ticker_info)
+                except YFTooManyAttempts as e:
+                    self._rate_cache.add("YFinance", 10 * 60) #10 mins
+                    raise e
+                except Exception as e:
+                        #traceback.print_exc()  # prints full call stack
+                        print(str(e))
+                        
             sector = ticker_info.get("sector")
             if not sector:
                 error = f"[SectorSentiment:{side}] No sector found"
@@ -187,15 +204,13 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
                 return False, error,"N/A"
 
             # 4. News sentiment evaluation
-            if self._news_cache is not None and self._news_cache.is_cached(symbol):
-                headlines,avg_sent = self.get_cached_info(symbol)
-            else:
-                headlines = aggregate_headlines_smart(symbol,self._rate_cache)
-                if headlines == []:
-                    error = f"[SectorSentiment:{side}] No Headline data found"
-                    return False,error,"N/A"
-                avg_sent = self.average_news_sentiment(headlines)
-                self.add_to_cache(symbol,headlines,avg_sent)
+
+            headlines = aggregate_headlines_smart(ticker=symbol,ticker_name=name,rate_cache=self._rate_cache,news_cache=self._news_cache)
+            if headlines == []:
+                error = f"[SectorSentiment:{side}] No Headline data found"
+                return False,error,"N/A"
+            avg_sent = self.average_news_sentiment(headlines)
+            self.add_to_cache(symbol,headlines,avg_sent)
             if avg_sent is not None:
                 if avg_sent < -0.1:
                     return False, f"SectorSentiment:{side}] Bearish sentiment","N/A"

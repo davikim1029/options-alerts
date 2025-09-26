@@ -44,18 +44,26 @@ class NewsAPIClient(NewsClient):
             raise ValueError("NEWSAPI_KEY not set in environment.")
         self.api_key = api_key
 
-    def fetch(self, ticker: str) -> Optional[List[Dict]]:
+    def fetch(self, ticker: str,ticker_name:str) -> Optional[List[Dict]]:
         
-        news_sources = [
-            "bloomberg.com", "reuters.com", "wsj.com", "cnbc.com", "marketwatch.com",
-            "nytimes.com", "ft.com", "forbes.com", "businessinsider.com", "yahoo.com"
-        ]
-        news_sources_str = ",".join(news_sources)
+        news_sources_str = "bloomberg,reuters,the-wall-street-journal,cnbc,marketwatch,the-new-york-times,financial-times,forbes,business-insider,yahoo-news"
         if self.rate_cache is not None and self.rate_cache.is_cached("NewsAPI"):
             return None
 
-        url = f"https://newsapi.org/v2/everything?q={ticker}&language=en&sources={news_sources_str}"
-        resp = requests.get(url, headers={"Authorization": f"Bearer {self.api_key}"})
+        url = "https://newsapi.org/v2/everything"        
+        
+        keyword = ticker_name
+        if ticker_name == "" or ticker_name is None:
+            keyword = ticker
+            
+
+        params = {
+            "q": f'"{keyword}"',          # wraps in quotes for exact matching
+            "language": "en",
+            "sources": news_sources_str,
+            "apiKey": self.api_key        # note: NewsAPI expects `apiKey` not `apikey`
+        }
+        resp = requests.get(url,params=params)
         if resp.status_code == 429:
             self.logger.logMessage("[NewsAPI] Rate limit hit")
             if self.rate_cache is not None:
@@ -85,15 +93,32 @@ class NewsDataClient(NewsClient):
         self.rate_cache = rate_cache
         self.api_key = os.getenv("NEWSDATA_KEY")
 
-    def fetch(self, ticker: str) -> Optional[List[Dict]]:
+    def fetch(self, ticker: str,ticker_name:str) -> Optional[List[Dict]]:
         if self.rate_cache is not None and self.rate_cache.is_cached("NewsData"):
             return None
         
-        categories = ["business"]  # could add more later, e.g., ["business", "technology"]
+        categories = [
+            "business",
+            "technology",
+            "economy",
+            "finance",
+            "energy",
+            "politics"
+        ]
         categories_str = ",".join(categories)
 
-        url = f"https://newsdata.io/api/1/news?apikey={self.api_key}&q={ticker}&language=en&category={categories_str}"
-        resp = requests.get(url)
+        url = "https://newsdata.io/api/1/news"
+        keyword = ticker_name
+        if ticker_name == "" or ticker_name is None:
+            keyword = ticker
+            
+        params = {
+            "apikey": self.api_key,
+            "q": f'"{keyword}"',  # safely quoted
+            "language": "en",
+            "category": categories_str,
+        }
+        resp = requests.get(url,params=params)
         if resp.status_code == 429:
             self.logger.logMessage("[NewsData] Rate limit hit")
             if self.rate_cache is not None:
@@ -135,12 +160,12 @@ class GoogleNewsClient(NewsClient):
         return f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
         
         
-    def fetch(self, ticker: str) -> List[Dict]:
+    def fetch(self, ticker: str,ticker_name:str) -> List[Dict]:
         cache_key = f"GoogleNews"
         if self.rate_cache is not None and self.rate_cache.is_cached(cache_key):
             return self.rate_cache.get(cache_key)
         
-        keywords = [ticker, "stock", "shares", "finance"]
+        keywords = [ticker_name, "stock", "shares", "finance"]
         url = self._build_query_url(keywords)
         feed = feedparser.parse(url)
         headlines = []
@@ -159,7 +184,7 @@ class GoogleNewsClient(NewsClient):
 # --------------------------
 # Smart Aggregator
 # --------------------------
-def aggregate_headlines_smart(ticker: str, rate_cache:RateLimitCache = None) -> List[Dict]:
+def aggregate_headlines_smart(ticker: str,ticker_name: str, rate_cache:RateLimitCache = None) -> List[Dict]:
     logger = getLogger()
     sources_priority = [
         ("NewsAPI", NewsAPIClient(rate_cache=rate_cache,logger=logger), True),
@@ -179,9 +204,5 @@ def aggregate_headlines_smart(ticker: str, rate_cache:RateLimitCache = None) -> 
             
         if articles:
             new_articles.extend(articles)
-
-            if rate_limited and rate_cache is not None:
-                rate_cache.add(f"{name}:{ticker}", 300)  # avoid hammering ticker-source combo
-                break
 
     return new_articles

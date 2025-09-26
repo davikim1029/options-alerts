@@ -223,7 +223,11 @@ class NewsApiCache(CacheManager):
 
 class RateLimitCache(CacheManager):
     def __init__(self):
-        super().__init__("RateLimit Cache", "cache/ratelimit_sentiment.json", ttl_days=30, autosave_interval=60)
+        super().__init__("RateLimit Cache", "cache/ratelimit_sentiment.json", ttl_days=1, autosave_interval=60)
+
+class YFinanceTickerCache(CacheManager):
+    def __init__(self):
+        super().__init__("YFinance Ticker Cache", "cache/yfinance_ticker.json", ttl_days=30, autosave_interval=60)
 
 
 class TickerCache(CacheManager):
@@ -259,6 +263,7 @@ class Caches:
         self.rate = RateLimitCache()
         self.ticker = TickerCache()
         self.eval = EvalCache()
+        self.yfin = YFinanceTickerCache()
         self.last_seen = LastTickerCache()
         self.ticker_metadata = TickerMetadata()
 
@@ -271,6 +276,7 @@ class Caches:
             self.rate,
             self.ticker,
             self.eval,
+            self.yfin,
             self.last_seen,
             self.ticker_metadata
         ]
@@ -284,7 +290,8 @@ class Caches:
             (self.rate.autosave_loop, "RateLimit Cache Autosave"),
             (self.last_seen.autosave_loop, "Last Ticker Cache Autosave"),
             (self.ticker_metadata.autosave_loop,"Ticker Metadata Cache Autosave"),
-            (self.eval.autosave_loop,"Evaluation Cache Autosave")
+            (self.eval.autosave_loop,"Evaluation Cache Autosave"),
+            (self.yfin.autosave_loop, "YFinance Cache Autosave")
         ]
 
     # Clear all caches

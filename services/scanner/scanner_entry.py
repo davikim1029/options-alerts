@@ -1,3 +1,4 @@
+#scanner_entry.py
 from services.threading.thread_manager import ThreadManager
 from services.scanner.scanner import run_scan
 from pathlib import Path

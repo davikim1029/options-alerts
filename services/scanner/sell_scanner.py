@@ -32,7 +32,7 @@ def run_sell_scan(
 
     sell_strategies = {
         "Primary": [OptionSellStrategy()],
-        "Secondary": [SectorSentimentStrategy(news_cache=news_cache, rate_cache=rate_cache)]
+        "Secondary": [SectorSentimentStrategy(caches=caches)]
     }
 
     try:

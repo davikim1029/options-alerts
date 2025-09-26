@@ -9,6 +9,7 @@ from services.alerts import send_alert
 from strategy.buy import OptionBuyStrategy
 from strategy.sentiment import SectorSentimentStrategy
 from services.token_status import TokenStatus
+from services.scanner.YFinanceFetcher import YFTooManyAttempts
 from services.etrade_consumer import TokenExpiredError, NoOptionsError,NoExpiryError,InvalidSymbolError
 from services.core.cache_manager import (
     LastTickerCache,
@@ -16,6 +17,7 @@ from services.core.cache_manager import (
     BoughtTickerCache,
     EvalCache,
     TickerMetadata,
+    TickerCache
 )
 from services.utils import is_json, write_scratch,get_job_count
 import json
@@ -64,7 +66,12 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
             
     last_ticker_cache = getattr(caches, "last_seen", None) or LastTickerCache()
     eval_cache = getattr(caches, "eval", None) or EvalCache()
+    ticker_cache = getattr(caches, "ticker", None) or TickerCache()
     ticker_metadata_cache = getattr(caches, "ticker_metadata", None) or TickerMetadata()
+    
+    ticker_name = ticker_cache.get(ticker)
+    if ticker_name is None:
+        ticker_name = ""
 
     processed_osi_keys = set()
     eval_keys = []
@@ -122,7 +129,7 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
         secondary_failure = ""
         for secondary in buy_strategies["Secondary"]:
             try:
-                success, error, score = secondary.should_buy(opt, context)
+                success, error, score = secondary.should_buy(opt,ticker_name, context)
                 eval_result[("SecondaryStrategy", secondary.name, "Result")] = success
                 eval_result[("SecondaryStrategy", secondary.name, "Message")] = error if not success else "Passed"
                 eval_result[("SecondaryStrategy", secondary.name, "Score")] = score
@@ -133,6 +140,8 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
                         secondary_score += score 
                     else:
                         secondary_score += 0
+            except YFTooManyAttempts as e:
+                raise e
             except Exception as e:
                 eval_result[("SecondaryStrategy",secondary.name, "Result")] = False
                 eval_result[("SecondaryStrategy",secondary.name, "Message")] = str(e)
@@ -204,11 +213,11 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
 
     buy_strategies = {
         "Primary": [OptionBuyStrategy()],
-        "Secondary": [SectorSentimentStrategy(news_cache=news_cache, rate_cache=rate_cache)],
+        "Secondary": [SectorSentimentStrategy(caches=caches)],
     }
 
     tickers_map = get_active_tickers(ticker_cache=ticker_cache)
-    ticker_keys = list(tickers_map.keys())
+    ticker_keys = list(tickers_map)
     if not ticker_keys:
         logger.logMessage("[Buy Scanner] No tickers to process.")
         return
@@ -374,6 +383,8 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
             if options is not None:
                 try:
                     analyze_ticker(ticker, options, context, buy_strategies, caches, {}, debug)
+                except YFTooManyAttempts as e:
+                    fetch_q.put(ticker)
                 except Exception as e:
                     logger.logMessage(f"[Buy Scanner] analyze_ticker {ticker} error: {e}")
             else:

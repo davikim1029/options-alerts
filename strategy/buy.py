@@ -17,7 +17,7 @@ class OptionBuyStrategy(BuyStrategy):
             # Phase 1: Hard Filters
             # ========================
             cost = option.ask * 100
-            cost_threshold = 50
+            cost_threshold = 100
             if cost > cost_threshold: 
                 return False, f"Hard fail: cost too high (${cost:.2f}). Threshold: ${cost_threshold}", "N/A"
             
@@ -116,7 +116,7 @@ class OptionBuyStrategy(BuyStrategy):
             # ========================
             # Final Decision
             # ========================
-            threshold = 10  # tune as needed, higher is more strict
+            threshold = 12  # tune as needed, higher is more strict
             summary = f"Score={score}, Threshold={threshold} | " + " | ".join(breakdown)
 
             if score >= threshold:

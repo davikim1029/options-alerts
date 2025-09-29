@@ -31,8 +31,6 @@ def get_active_tickers(ticker_cache:TickerCache = None):
         tickers = fetch_us_tickers_from_finnhub(ticker_cache=ticker_cache)
     return tickers
 
-
-
 def get_next_run_date(seconds_to_wait: int) -> str:
     """
     Returns the next run time as a string in 12-hour format (AM/PM),

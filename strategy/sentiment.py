@@ -181,7 +181,20 @@ class SectorSentimentStrategy(BuyStrategy,SellStrategy):
                     raise e
                 except Exception as e:
                         #traceback.print_exc()  # prints full call stack
-                        print(str(e))
+                        error_pre = "Error with YFin handling: " 
+                        error = str(e)
+                        if hasattr(e,"args") and len(e.args) > 0:
+                            e_data = e.args[0]
+                            if is_json(e_data):
+                                e_data = json.loads(e_data)
+                                if hasattr(e_data,"Error"):
+                                    error = str(e_data["Error"])
+                                else:
+                                    error = str(e_data)
+                        error_str = error_pre + error
+                        logger = getLogger()
+                        logger.logMessage(error_str)
+
                         
             sector = ticker_info.get("sector")
             if not sector:

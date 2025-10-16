@@ -6,6 +6,10 @@ from cryptography.fernet import Fernet
 import os
 from dotenv import load_dotenv
 import time
+from services.logging.logger_singleton import getLogger
+
+
+logger = getLogger()
 
 
 def send_alert(message,debug:bool = False):

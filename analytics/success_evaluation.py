@@ -2,7 +2,7 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from datetime import datetime
-
+from analytics.analyze_evaluation import prompt_for_file
 
 def normalize_score(score):
     """Convert score to float if possible, else None."""
@@ -39,86 +39,58 @@ def load_latest_evals(file_path: str):
     return latest_data
 
 
-def analyze_failures(file_path: str):
-    """Analyze primary strategy failures in the latest evaluation data."""
+def analyze_successes(file_path: str, top_n: int = 3):
+    """Analyze primary strategy successes and key attributes."""
     data = load_latest_evals(file_path)
 
-    failure_reasons = []
+    success_reasons = []
     score_counts = defaultdict(int)
 
+    # Optional: track other metrics if you want, e.g., "Score buckets", "Days to expiry", etc.
+    # For now, we just focus on Score and Message attributes.
     for ticker, value in data.items():
         try:
             primary = value.get("PrimaryStrategy", {}).get("OptionBuyStrategy", {})
             primary_score = normalize_score(primary.get("Score"))
 
-            if not primary.get("Result", True):
+            if primary.get("Result", False):
                 score_counts[primary_score] += 1
                 reason = primary.get("Message", "No message")
-                failure_reasons.append(f"Primary - {reason}")
+                success_reasons.append(f"Primary - {reason}")
         except Exception as e:
             print(f"Error processing {ticker}: {e}")
 
-    counter = Counter(failure_reasons)
+    counter = Counter(success_reasons)
 
     if not counter:
-        print("No failures found!")
+        print("No successes found!")
         return counter
 
-    # --- Top 3 failure reasons ---
-    print("\n=== Top 3 Failure Reasons ===")
-    for idx, (reason, count) in enumerate(counter.most_common(3), start=1):
+    # --- Top 3 success reasons ---
+    print("\n=== Top 3 Success Reasons ===")
+    for idx, (reason, count) in enumerate(counter.most_common(top_n), start=1):
         print(f"{idx}. {reason} ({count} options)")
 
     # --- Score distribution ---
-    print("\n=== Primary Score Distribution ===")
+    print("\n=== Primary Score Distribution for Successes ===")
     for score, count in sorted(score_counts.items(), key=lambda x: (x[0] is None, x[0])):
         label = "N/A" if score is None else score
         print(f"Score {label}: {count} options")
 
-    print(f"\nTotal Failed Options: {len(failure_reasons)} / {len(data)}")
+    print(f"\nTotal Successful Options: {len(success_reasons)} / {len(data)}")
 
     # --- Optional full breakdown ---
-    choice = input("\nWould you like to see the full detailed breakdown? (y/n): ").strip().lower()
+    choice = input("\nWould you like to see the full detailed breakdown of successes? (y/n): ").strip().lower()
     if choice == "y":
-        print("\n=== Full Breakdown by Reason ===")
+        print("\n=== Full Breakdown of Successes by Reason ===")
         for reason, count in sorted(counter.items(), key=lambda x: -x[1]):
             print(f"{reason}: {count}")
 
     return counter
 
 
-def prompt_for_file(default_folder: str = "data/ticker_eval/cleaned") -> str:
-    folder = Path(default_folder)
-    files = sorted([f for f in folder.glob("*.json") if f.is_file()])
-
-    if not files:
-        print(f"No JSON files found in {default_folder}. Please enter a file path.")
-        return input("Enter file path: ").strip()
-
-    print(f"\nFiles found in {default_folder}:")
-    for idx, f in enumerate(files, start=1):
-        print(f"{idx}. {f.name}")
-    print(f"{len(files)+1}. Current evaluation cache")
-    print(f"{len(files)+2}. Enter custom file path")
-    print(f"{len(files)+3}. Exit")
-
-    while True:
-        choice = input("Select an option: ").strip()
-        if choice.isdigit():
-            choice = int(choice)
-            if 1 <= choice <= len(files):
-                return str(files[choice - 1])
-            elif choice == len(files) + 1:
-                return "cache/evaluated.json"
-            elif choice == len(files) + 2:
-                return input("Enter file path: ").strip()
-            elif choice == len(files) + 3:
-                return "exit"
-        print("Invalid selection, try again.")
-
-
-def analysis_entry():
-    """Entry point for primary analysis only."""
+def success_analysis_entry():
+    """Entry point for primary success analysis."""
     while True:
         file_path = prompt_for_file()
         if file_path.lower() == "exit":
@@ -131,5 +103,5 @@ def analysis_entry():
             continue
         break
 
-    print("\n--- Primary Analysis ---")
-    analyze_failures(file_path)
+    print("\n--- Primary Success Analysis ---")
+    analyze_successes(file_path)

@@ -7,20 +7,25 @@ from services.logging.logger_singleton import getLogger
 from services.scanner.scanner_utils import get_active_tickers
 from services.alerts import send_alert
 from strategy.buy import OptionBuyStrategy
-from strategy.sentiment import SectorSentimentStrategy
 from services.token_status import TokenStatus
 from services.scanner.YFinanceFetcher import YFTooManyAttempts
-from services.etrade_consumer import TokenExpiredError, NoOptionsError,NoExpiryError,InvalidSymbolError
+from services.etrade_consumer import TokenExpiredError, NoOptionsError, NoExpiryError, InvalidSymbolError
 from services.core.cache_manager import (
     LastTickerCache,
     IgnoreTickerCache,
     BoughtTickerCache,
     EvalCache,
     TickerMetadata,
-    TickerCache
+    TickerCache,
+    RateLimitCache
 )
-from services.utils import is_json, write_scratch,get_job_count
+from services.utils import is_json, write_scratch, get_job_count
 import json
+
+# new: sentiment aggregator import
+from services.news_aggregator import get_sentiment_signal
+
+logger = getLogger()
 
 # ------------------------- Result container -------------------------
 @dataclass
@@ -46,7 +51,7 @@ print("[Buy Scanner] Module loaded/reloaded")  # hot reload indicator
 
 def _reset_globals():
     global counter_lock, api_worker_lock
-    global total_tickers, remaining_ticker_count, processed_counter,processed_counter_opts, total_iterated
+    global total_tickers, remaining_ticker_count, processed_counter, processed_counter_opts, total_iterated
     counter_lock = threading.Lock()
     api_worker_lock = threading.Lock()
     total_tickers = 0
@@ -60,54 +65,97 @@ _reset_globals()
 
 
 # ------------------------- Analysis logic -------------------------
-def analyze_ticker(ticker, options, context, buy_strategies, caches, config, debug=False):
+def analyze_ticker(ticker, options, context, buy_strategy, caches, config, debug=False):
     logger = getLogger()
     eval_result, metadata, buy_alerts = {}, {}, []
-            
+
     last_ticker_cache = getattr(caches, "last_seen", None) or LastTickerCache()
     eval_cache = getattr(caches, "eval", None) or EvalCache()
     ticker_cache = getattr(caches, "ticker", None) or TickerCache()
     ticker_metadata_cache = getattr(caches, "ticker_metadata", None) or TickerMetadata()
-    
-    ticker_name = ticker_cache.get(ticker)
-    if ticker_name is None:
-        ticker_name = ""
+    rate_cache = getattr(caches, "rate", None)
+
+    ticker_name = ticker_cache.get(ticker) or ""
+
+    # -------------------------
+    # Precompute sentiment (once per ticker) and stash in context
+    # -------------------------
+    sentiment_signal = None
+    try:
+        # If news cache exists and has cached sentiment, prefer it
+        news_cache = getattr(caches, "news", None)
+        if news_cache is not None:
+            try:
+                if news_cache.is_cached(ticker):
+                    cached = news_cache.get(ticker)
+                    if isinstance(cached, dict) and "avg_sentiment" in cached:
+                        sentiment_signal = cached.get("avg_sentiment")
+            except Exception:
+                sentiment_signal = None
+
+        # If not found in cache, call aggregator
+        if sentiment_signal is None:
+            sentiment_signal = get_sentiment_signal(ticker, ticker_name, rate_cache=rate_cache)
+
+            # if aggregator returned None -> upstream rate-limited; set to None to indicate backoff
+            if sentiment_signal is None:
+                logger.logMessage(f"[Buy Scanner] Sentiment upstream rate-limited for {ticker}; will skip live sentiment")
+            else:
+                # store in news cache for reuse (best-effort)
+                try:
+                    if news_cache is not None:
+                        news_cache.add(ticker, {"avg_sentiment": sentiment_signal, "fetched_at": datetime.now().timestamp()})
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.logMessage(f"[Buy Scanner] Sentiment precompute failed for {ticker}: {e}")
+        sentiment_signal = None
+
+    # use a copy of context so we don't mutate caller context
+    local_context = context.copy() if context else {}
+    local_context["sentiment_signal"] = sentiment_signal
 
     processed_osi_keys = set()
     eval_keys = []
+
     for opt in options:
         should_buy, osi_key = True, getattr(opt, "osiKey", None)
         processed_osi_keys.add(osi_key)
-        disp = opt.displaySymbol.split(" ")
-        eval_key = f"{disp[0]} - {' '.join(disp[1:])}"      
+        disp = getattr(opt, "displaySymbol", "").split(" ")
+        eval_key = f"{disp[0]} - {' '.join(disp[1:])}" if disp else str(getattr(opt, "displaySymbol", opt))
         eval_keys.append(eval_key)
-        
-        #Don't reprocess if we've already processed this recently
-        if eval_cache.is_cached(eval_key):
-            continue
-                    
-        # Primary strategies
+
+        # Don't reprocess if we've already processed this recently
+        try:
+            if eval_cache.is_cached(eval_key):
+                continue
+        except Exception:
+            # if cache errors, proceed to evaluate anyway
+            pass
+
         eval_result = {}
         primary_score = 0
-        for primary in buy_strategies["Primary"]:
-            try:
-                success, error,score = primary.should_buy(opt, context)
-                eval_result[("PrimaryStrategy", primary.name, "Result")] = success
-                eval_result[("PrimaryStrategy", primary.name, "Message")] = error
-                eval_result[("PrimaryStrategy", primary.name, "Score")] = score
-                if not success == True:
-                    should_buy = False
-                else:
-                    if score != "N/A":
-                        primary_score += score 
-                    else:
-                        primary_score += 0
-            except Exception as e:
+
+        # Single unified primary strategy evaluation
+        try:
+            success, message, score = buy_strategy.should_buy(opt, local_context)
+            eval_result[("PrimaryStrategy", buy_strategy.name, "Result")] = success
+            eval_result[("PrimaryStrategy", buy_strategy.name, "Message")] = message
+            eval_result[("PrimaryStrategy", buy_strategy.name, "Score")] = score
+            if not success:
                 should_buy = False
-                eval_result[(primary.name, primary.name, "Result")] = False
-                eval_result[(primary.name, primary.name, "Message")] = str(e)
-                eval_result[("PrimaryStrategy", primary.name, "Score")] = "N/A"
-                
+            else:
+                try:
+                    if score != "N/A":
+                        primary_score += float(score)
+                except Exception:
+                    pass
+        except Exception as e:
+            should_buy = False
+            eval_result[(buy_strategy.name, buy_strategy.name, "Result")] = False
+            eval_result[(buy_strategy.name, buy_strategy.name, "Message")] = str(e)
+            eval_result[("PrimaryStrategy", buy_strategy.name, "Score")] = "N/A"
+
         with counter_lock:
             global processed_counter_opts
             processed_counter_opts += 1
@@ -116,51 +164,29 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
                     f"[Buy Scanner] Thread {threading.current_thread().name} | Processed {processed_counter_opts} options."
                 )
 
-        if should_buy == False:
-            eval_result[("SecondaryStrategy","N/A", "Result")] = False
-            eval_result[("SecondaryStrategy","N/A", "Message")] = "Primary Strategy did not pass, secondary not evaluated"
-            eval_result[("SecondaryStrategy", "N/A", "Score")] = "N/A"
+        if not should_buy:
+            # Save result and continue
             if eval_cache:
-                eval_cache.add(eval_key, eval_result)
+                try:
+                    eval_cache.add(eval_key, eval_result)
+                except Exception:
+                    pass
             continue
 
-        # Secondary strategies
-        secondary_score = 0
-        secondary_failure = ""
-        for secondary in buy_strategies["Secondary"]:
+        # If strategy passed (True), create alert and store result
+        if should_buy:
             try:
-                success, error, score = secondary.should_buy(opt,ticker_name, context)
-                eval_result[("SecondaryStrategy", secondary.name, "Result")] = success
-                eval_result[("SecondaryStrategy", secondary.name, "Message")] = error if not success else "Passed"
-                eval_result[("SecondaryStrategy", secondary.name, "Score")] = score
-                if not success:
-                    secondary_failure += f" | {error}"
-                else:
-                    if score != "N/A":
-                        secondary_score += score 
-                    else:
-                        secondary_score += 0
-            except YFTooManyAttempts as e:
-                raise e
-            except Exception as e:
-                eval_result[("SecondaryStrategy",secondary.name, "Result")] = False
-                eval_result[("SecondaryStrategy",secondary.name, "Message")] = str(e)
-                eval_result[("SecondaryStrategy", secondary.name, "Score")] = "N/A"
-
-        if secondary_failure != "":
-            if eval_cache:
-                eval_cache.add(eval_key, eval_result)
-            continue
-
-        if should_buy and secondary_failure == "":
-            try:
-                msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {getattr(opt, 'ask', -1) * 100} | Scores: P - {primary_score}, S - {secondary_score}"
+                msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {getattr(opt, 'ask', -1) * 100} | Score: {primary_score:.2f}"
                 send_alert(msg)
                 buy_alerts.append(msg)
             except Exception as e:
                 logger.logMessage(f"[Buy Scanner] send_alert failed: {e}")
+
         if eval_cache:
-            eval_cache.add(eval_key, eval_result)
+            try:
+                eval_cache.add(eval_key, eval_result)
+            except Exception:
+                pass
 
     with counter_lock:
         global processed_counter
@@ -179,7 +205,7 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
     ]
 
     metadata = {
-        "eval_keys":eval_keys,
+        "eval_keys": eval_keys,
         "min_strike": min(strikes_seen, default=None),
         "max_strike": max(strikes_seen, default=None),
         "expirations": expirations_seen,
@@ -187,7 +213,11 @@ def analyze_ticker(ticker, options, context, buy_strategies, caches, config, deb
         "last_checked": datetime.now().astimezone().isoformat(),
     }
 
-    ticker_metadata_cache.add(ticker, metadata)
+    try:
+        ticker_metadata_cache.add(ticker, metadata)
+    except Exception:
+        pass
+
     return TickerResult(ticker, eval_result, metadata, buy_alerts)
 
 
@@ -211,10 +241,8 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
     eval_cache = getattr(caches, "eval", None) or EvalCache()
     last_ticker_cache = getattr(caches, "last_seen", None)
 
-    buy_strategies = {
-        "Primary": [OptionBuyStrategy()],
-        "Secondary": [SectorSentimentStrategy(caches=caches)],
-    }
+    # Build single primary strategy instance (unified)
+    buy_strategy = OptionBuyStrategy()
 
     tickers_map = get_active_tickers(ticker_cache=ticker_cache)
     ticker_keys = list(tickers_map)
@@ -235,21 +263,21 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
 
     for ticker in remaining_tickers:
         if ticker.upper().endswith("Q"):   # Q Suffix means bankrupt
-            bankrupt_skipped+=1
-            continue    
+            bankrupt_skipped += 1
+            continue
         if ignore_cache.is_cached(ticker):
-            ignore_skipped+=1
+            ignore_skipped += 1
             continue
         if bought_cache.is_cached(ticker):
-            bought_skipped+=1
+            bought_skipped += 1
             continue
         filtered_tickers.append(ticker)
-        
+
     logger.logMessage(f"{bankrupt_skipped} tickers skipped due to bankruptcy")
     logger.logMessage(f"{ignore_skipped} tickers skipped based on Ignore Cache")
     logger.logMessage(f"{bought_skipped} tickers skipped based on Bought Cache")
     logger.logMessage(f"{eval_skipped} tickers skipped based on Evaluation Cache")
-        
+
     global total_tickers, remaining_ticker_count
     total_tickers = remaining_ticker_count = len(filtered_tickers)
 
@@ -269,14 +297,14 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
 
     # Threading config
     scanner_cfg = getattr(caches, "scanner_config", {}) or {}
-    num_api_threads = int(max(4,get_job_count()))
-    num_analysis_threads = int(max(1,get_job_count()))
+    num_api_threads = int(max(4, get_job_count()))
+    num_analysis_threads = int(max(1, get_job_count()))
     api_semaphore_limit = int(scanner_cfg.get("api_semaphore", 8))
 
     fetch_q, result_q = queue.Queue(), queue.Queue()
     api_semaphore = threading.Semaphore(api_semaphore_limit)
 
-    def api_worker(stop_evt, ignore_cache = None):
+    def api_worker(stop_evt, ignore_cache=None):
         logger.logMessage(f"[Buy Scanner] API worker {threading.current_thread().name} started")
         while not stop_evt.is_set():
             try:
@@ -294,11 +322,11 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                     fetch_q.put(ticker)
                 except NoExpiryError as e:
                     error = "No expiry found"
-                    if hasattr(e,"args") and len(e.args) > 0:
+                    if hasattr(e, "args") and len(e.args) > 0:
                         e_data = e.args[0]
                         if is_json(e_data):
                             e_data = json.loads(e_data)
-                            if hasattr(e_data,"Error"):
+                            if hasattr(e_data, "Error"):
                                 error = str(e_data["Error"])
                             else:
                                 error = str(e_data)
@@ -308,14 +336,13 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                         error = str(e)
                     if ignore_cache is not None:
                         ignore_cache.add(ticker, error)
-                
                 except InvalidSymbolError as e:
                     error = "Invalid Symbol found"
-                    if hasattr(e,"args") and len(e.args) > 0:
+                    if hasattr(e, "args") and len(e.args) > 0:
                         e_data = e.args[0]
                         if is_json(e_data):
                             e_data = json.loads(e_data)
-                            if hasattr(e_data,"Error"):
+                            if hasattr(e_data, "Error"):
                                 error = str(e_data["Error"])
                             else:
                                 error_obj = e_data.get("Error")
@@ -331,14 +358,13 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
                         error = str(e)
                     if ignore_cache is not None:
                         ignore_cache.add(ticker, error)
-                    
                 except NoOptionsError as e:
                     error = "No options found"
-                    if hasattr(e,"args") and len(e.args) > 0:
+                    if hasattr(e, "args") and len(e.args) > 0:
                         e_data = e.args[0]
                         if is_json(e_data):
                             e_data = json.loads(e_data)
-                            if hasattr(e_data,"Error"):
+                            if hasattr(e_data, "Error"):
                                 error = str(e_data["Error"])
                             else:
                                 error_obj = e_data.get("Error")
@@ -382,7 +408,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
             total_iterated += 1
             if options is not None:
                 try:
-                    analyze_ticker(ticker, options, context, buy_strategies, caches, {}, debug)
+                    analyze_ticker(ticker, options, context, buy_strategy, caches, {}, debug)
                 except YFTooManyAttempts as e:
                     fetch_q.put(ticker)
                 except Exception as e:
@@ -394,7 +420,7 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
         logger.logMessage(f"[Buy Scanner] Analysis worker {threading.current_thread().name} exiting")
 
     # Start workers
-    api_threads = [threading.Thread(target=api_worker, args=(stop_event,ignore_cache), name=f"Buy Fetch Thread {i}", daemon=True) for i in range(num_api_threads)]
+    api_threads = [threading.Thread(target=api_worker, args=(stop_event, None), name=f"Buy Fetch Thread {i}", daemon=True) for i in range(num_api_threads)]
     for t in api_threads: t.start()
     analysis_threads = [threading.Thread(target=analysis_worker, args=(stop_event,), name=f"Buy Analysis Thread {i}", daemon=True) for i in range(num_analysis_threads)]
     for t in analysis_threads: t.start()
@@ -404,7 +430,6 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
         fetch_q.put(t)
 
     # Instead of blocking forever on join, poll with stop_event
-    
     while not stop_event.is_set():
         if fetch_q.unfinished_tasks == 0 and result_q.unfinished_tasks == 0:
             break
@@ -418,11 +443,15 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
     # If stop_event was triggered, flush queues to let workers exit
     if stop_event.is_set():
         while not fetch_q.empty():
-            try: fetch_q.get_nowait(); fetch_q.task_done()
-            except queue.Empty: break
+            try:
+                fetch_q.get_nowait(); fetch_q.task_done()
+            except queue.Empty:
+                break
         while not result_q.empty():
-            try: result_q.get_nowait(); result_q.task_done()
-            except queue.Empty: break
+            try:
+                result_q.get_nowait(); result_q.task_done()
+            except queue.Empty:
+                break
 
     # Stop workers gracefully
     for _ in api_threads: fetch_q.put(None)
@@ -438,11 +467,17 @@ def run_buy_scan(stop_event, consumer=None, caches=None, debug=False):
 
     #If we've iterated over every ticker,  clear the last_ticker cache 
     if total_iterated == remaining_ticker_count:
-        last_ticker_cache.clear()
-    
+        try:
+            last_ticker_cache.clear()
+        except Exception:
+            pass
+
     #Save off cache for future analysis
     eval_cache = getattr(caches, "eval", None)
     if eval_cache is not None:
-        eval_cache.copy_cache_to_file()
-        
+        try:
+            eval_cache.copy_cache_to_file()
+        except Exception:
+            pass
+
     logger.logMessage("[Buy Scanner] Run complete")

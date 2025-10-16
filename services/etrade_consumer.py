@@ -14,8 +14,16 @@ from services.threading.api_worker import ApiWorker,HttpMethod
 from services.logging.logger_singleton import getLogger
 from services.token_status import TokenStatus
 from services.utils import write_scratch
+import enum
 
 TOKEN_LIFETIME_DAYS = 90
+
+class ActionResponse(enum.Enum):
+    SUCCESS = "SUCCESS"
+    FAILURE = "FAILURE"
+    RESTART = "RESTART"
+    QUIT = "QUIT"
+
 
 class TokenExpiredError(Exception):
     """Raised when OAuth token is invalid or expired."""
@@ -52,8 +60,14 @@ class EtradeConsumer:
 
         if not os.path.exists(self.token_file):
             self.logger.logMessage("No token file found. Starting OAuth...")
-            if not self.generate_token():
-                raise Exception("Failed to generate access token.")
+            while True:
+                generate_status = self.generate_token()
+                if generate_status in {ActionResponse.FAILURE, ActionResponse.QUIT} :
+                    raise Exception("Failed to generate access token.")
+                elif generate_status == ActionResponse.RESTART:
+                    continue
+                elif generate_status == ActionResponse.SUCCESS:
+                    break
         else:
             self.load_tokens()
 
@@ -252,7 +266,7 @@ class EtradeConsumer:
             self.logger.logMessage(f"[Token Validation] Session check failed: {e}")
             return False
 
-    def generate_token(self):
+    def generate_token(self) -> ActionResponse:
         """
         Interactive OAuth flow for E*TRADE with retry logic.
         User can retry PIN, regenerate a new token/URL, or exit.
@@ -272,7 +286,7 @@ class EtradeConsumer:
                 resource_owner_secret = fetch_response.get("oauth_token_secret")
             except Exception as e:
                 self.logger.logMessage(f"[Auth] Failed to obtain request token: {e}")
-                return
+                return ActionResponse.FAILURE
 
             # Step 2: Provide user the authorization URL            
             authorize_base = "https://us.etrade.com/e/t/etws/authorize"
@@ -289,10 +303,10 @@ class EtradeConsumer:
 
                 if verifier.lower() == "exit":
                     self.logger.logMessage("[Auth] User aborted token generation")
-                    return False
+                    return ActionResponse.QUIT
                 if verifier.lower() == "restart":
                     self.logger.logMessage("[Auth] Restarting OAuth flow with new request token")
-                    break  # break inner loop, restart outer flow
+                    return ActionResponse.RESTART  # break inner loop, restart outer flow
 
                 access_token_url = f"{self.base_url}/oauth/access_token"
 
@@ -320,15 +334,12 @@ class EtradeConsumer:
 
                     self.logger.logMessage("[Auth] Access token successfully obtained and saved")
                     self.token_status.set_status(True)
-                    return True
+                    return ActionResponse.SUCCESS
                 except Exception as e:
                     self.token_status.set_status(False)
                     self.logger.logMessage(f"[Auth] Invalid PIN or error during exchange: {e}")
                     self.logger.logMessage("[Auth] Try again, type 'restart' for new URL, or 'exit'.")
                     continue  # loop again for new PIN
-            
-            #We shouldn't hit this so trigger as failure
-            return False
 
 
     def save_tokens(self):

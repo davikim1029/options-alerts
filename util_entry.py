@@ -9,6 +9,7 @@ from analytics.cleanup_eval import cleanup_entry
 from analytics.review_ignore_cache import review_ignore
 from performance.performance_comparison import perf_comp_entry
 from testing.get_ticker_opts import get_ticker_opts_entry,get_ticker_expiry_entry
+from analytics.success_evaluation import success_analysis_entry
 
 # Disable GPU / MPS fallback
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -22,7 +23,8 @@ def get_mode_from_prompt():
     """
     modes = [
       ("refresh-token", "Refresh the Etrade token"),
-        ("analyze-tickers","Analyze evaluated tickers"),
+        ("analyze-errors","Analyze errors in evaluation data"),
+        ("analyze-success","Analyze successes in evaluation data"),
         ("performance-compare","Compare performance on evaluated tickers"),
         ("cleanup-eval","Consolidate disparate eval files"),
         ("get-ticker-opts", "Get option results for a given ticker"),
@@ -79,7 +81,7 @@ def main():
         elif mode == "encrypt-etrade":
             encryptEtradeKeySecret(False)
 
-        elif mode == "analyze-tickers":
+        elif mode == "analyze-errors":
             analysis_entry()
             
         elif mode == "performance-compare":
@@ -96,6 +98,9 @@ def main():
             
         elif mode == "get-ticker_exp":
             get_ticker_expiry_entry()
+        
+        elif mode == "analyze-success":
+            success_analysis_entry()
         
         elif mode == "reset-tickers":
             files_to_reset = ["evaluated","last_ticker"]

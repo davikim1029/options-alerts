@@ -293,7 +293,7 @@ class OptionBuyStrategy(BuyStrategy):
 
             # Final dynamic thresholding
             vix_adj = self._vix_adjustment()
-            base_threshold = 12
+            base_threshold = 14
             threshold = base_threshold + vix_adj
 
             summary = f"Score={score:.2f}, Threshold={threshold} | " + " | ".join(breakdown)

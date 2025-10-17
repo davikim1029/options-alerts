@@ -21,7 +21,8 @@ import os
 import requests
 import feedparser
 import math
-import time
+import re
+from html import unescape
 import re
 from services.logging.logger_singleton import getLogger
 from services.core.cache_manager import RateLimitCache,HeadlineCache
@@ -185,7 +186,7 @@ class GoogleNewsClient(NewsClientBase):
                 out.append(Headline(
                     source="google",
                     title=entry.title,
-                    description=getattr(entry, "summary", None),
+                    description=clean_description(getattr(entry, "summary", None)),
                     url=getattr(entry, "link", None),
                     published_at=getattr(entry, "published", None) or getattr(entry, "updated", None)
                 ))
@@ -365,8 +366,40 @@ def get_sentiment_signal(ticker: str, ticker_name: str = "", rate_cache: RateLim
             return None
         if not headlines:
             return 0.0
-        headline_cache.add(ticker,headlines)
+        headline_cache.add(ticker,strip_unwanted_fields(headlines))
         return compute_headlines_sentiment(headlines)
     except Exception as e:
         logger.logMessage(f"[Aggregator] get_sentiment_signal error for {ticker}: {e}")
         return 0.0
+
+def clean_description(html_text: str) -> str:
+    """Remove HTML tags, decode entities, and normalize whitespace."""
+    import re
+    from html import unescape
+
+    if not html_text:
+        return ""
+
+    no_tags = re.sub(r"<.*?>", "", html_text)
+    text = unescape(no_tags)
+
+    # Replace non-breaking spaces and normalize multiple spaces
+    text = text.replace("\xa0", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+def strip_unwanted_fields(headlines, drop_keys=None):
+    drop_keys = set(drop_keys or ["url"])
+    cleaned = []
+
+    for h in headlines:
+        if isinstance(h, dict):
+            source = h
+        else:
+            source = vars(h)  # Get object attributes
+
+        # Keep only wanted fields
+        filtered = {k: v for k, v in source.items() if k not in drop_keys}
+        cleaned.append(filtered)
+
+    return cleaned

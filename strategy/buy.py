@@ -296,9 +296,26 @@ class OptionBuyStrategy(BuyStrategy):
             base_threshold = 14
             threshold = base_threshold + vix_adj
 
-            summary = f"Score={score:.2f}, Threshold={threshold} | " + " | ".join(breakdown)
+            summary = f"Score={score:.2f} | " + " | ".join(breakdown)
 
             if score >= threshold:
+                # --- optional: estimate holding period and append to summary ---
+                try:
+                    from strategy.hold_estimator import estimate_holding_period
+                    hold_rec = estimate_holding_period(option, context or {})
+                    hold_msg = f" | HoldDays={hold_rec.get('hold_days')} ({hold_rec.get('category')}) ReevalHrs={hold_rec.get('reevaluate_after_hours')}"
+                    # include rationale if you want more verbosity (comment/uncomment)
+                    hold_rationale = hold_rec.get("rationale")
+                    if hold_rationale:
+                        hold_msg += f" | Rationale: {hold_rationale}"
+                    summary = summary + hold_msg
+                except Exception as e:
+                    # do not change buy result if estimator fails
+                    try:
+                        logger.logMessage(f"[BuyStrategy] hold estimator failed: {e}")
+                    except Exception:
+                        pass
+
                 return True, summary, score
             else:
                 return False, summary, score

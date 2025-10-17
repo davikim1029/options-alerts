@@ -21,6 +21,7 @@ from services.core.cache_manager import (
 )
 from services.utils import is_json, write_scratch, get_job_count
 import json
+import re
 
 # new: sentiment aggregator import
 from services.news_aggregator import get_sentiment_signal
@@ -177,7 +178,15 @@ def analyze_ticker(ticker, options, context, buy_strategy, caches, config, debug
         # If strategy passed (True), create alert and store result
         if should_buy:
             try:
-                msg = f"[Buy Scanner] BUY: {ticker} -> {getattr(opt, 'displaySymbol', '?')}/Ask: {getattr(opt, 'ask', -1) * 100} | Score: {primary_score:.2f}"
+                # Regex patterns for the three fields
+                score_match = re.search(r'Score=\d+(?:\.\d+)?', message)
+                hold_match = re.search(r'HoldDays=.*?ReevalHrs=\d+', message)
+                rationale_match = re.search(r'Rationale:\s*Score\s*\d+(?:\.\d+)?', message)
+
+                # Combine found fields
+                parts = [m.group(0) for m in [score_match, hold_match, rationale_match] if m]
+                parsed = " | ".join(parts)
+                msg = f"Buy: {getattr(opt, 'displaySymbol', '?')}/Ask: {getattr(opt, 'ask', -1) * 100} | {parsed}"
                 send_alert(msg)
                 buy_alerts.append(msg)
             except Exception as e:

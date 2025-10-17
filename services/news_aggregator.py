@@ -24,7 +24,7 @@ import math
 import time
 import re
 from services.logging.logger_singleton import getLogger
-from services.core.cache_manager import RateLimitCache
+from services.core.cache_manager import RateLimitCache,HeadlineCache
 from services.scanner.scanner_utils import is_rate_limited
 
 logger = getLogger()
@@ -353,7 +353,7 @@ def compute_headlines_sentiment(headlines: List[Headline]) -> float:
 # -------------------------------------------------------
 # Convenience: one-call sentiment getter used in scanner
 # -------------------------------------------------------
-def get_sentiment_signal(ticker: str, ticker_name: str = "", rate_cache: RateLimitCache = None) -> Optional[float]:
+def get_sentiment_signal(ticker: str, ticker_name: str = "", rate_cache: RateLimitCache = None,headline_cache: HeadlineCache = None) -> Optional[float]:
     """
     Fetch headlines and compute sentiment signal.
     Returns float in [-1,1] or None if upstream rate-limited (so caller can back off).
@@ -365,6 +365,7 @@ def get_sentiment_signal(ticker: str, ticker_name: str = "", rate_cache: RateLim
             return None
         if not headlines:
             return 0.0
+        headline_cache.add(ticker,headlines)
         return compute_headlines_sentiment(headlines)
     except Exception as e:
         logger.logMessage(f"[Aggregator] get_sentiment_signal error for {ticker}: {e}")

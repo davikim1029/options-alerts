@@ -84,6 +84,7 @@ def analyze_ticker(ticker, options, context, buy_strategy, caches, config, debug
     try:
         # If news cache exists and has cached sentiment, prefer it
         news_cache = getattr(caches, "news", None)
+        headline_cache = getattr(caches, "headlines", None)
         if news_cache is not None:
             try:
                 if news_cache.is_cached(ticker):
@@ -95,7 +96,7 @@ def analyze_ticker(ticker, options, context, buy_strategy, caches, config, debug
 
         # If not found in cache, call aggregator
         if sentiment_signal is None:
-            sentiment_signal = get_sentiment_signal(ticker, ticker_name, rate_cache=rate_cache)
+            sentiment_signal = get_sentiment_signal(ticker, ticker_name, rate_cache=rate_cache,headline_cache=headline_cache)
 
             # if aggregator returned None -> upstream rate-limited; set to None to indicate backoff
             if sentiment_signal is None:

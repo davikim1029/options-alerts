@@ -219,6 +219,10 @@ class BoughtTickerCache(CacheManager):
 class NewsApiCache(CacheManager):
     def __init__(self):
         super().__init__("NewsApi Cache", "cache/newsapi_sentiment.json", ttl_hours=6, autosave_interval=60)
+        
+class HeadlineCache(CacheManager):
+    def __init__(self):
+        super().__init__("Headline Cache", "cache/headlines.json", ttl_hours=6, autosave_interval=60)
 
 
 class RateLimitCache(CacheManager):
@@ -266,6 +270,7 @@ class Caches:
         self.yfin = YFinanceTickerCache()
         self.last_seen = LastTickerCache()
         self.ticker_metadata = TickerMetadata()
+        self.headlines = HeadlineCache()
 
     # Return list of all caches (for loops in scanner)
     def all_caches(self):
@@ -278,7 +283,8 @@ class Caches:
             self.eval,
             self.yfin,
             self.last_seen,
-            self.ticker_metadata
+            self.ticker_metadata,
+            self.headlines
         ]
 
     # Return tuples for autosave loops (for ThreadManager)
@@ -291,7 +297,8 @@ class Caches:
             (self.last_seen.autosave_loop, "Last Ticker Cache Autosave"),
             (self.ticker_metadata.autosave_loop,"Ticker Metadata Cache Autosave"),
             (self.eval.autosave_loop,"Evaluation Cache Autosave"),
-            (self.yfin.autosave_loop, "YFinance Cache Autosave")
+            (self.yfin.autosave_loop, "YFinance Cache Autosave"),
+            (self.headlines.autosave_loop, "Headline Cache Autosave")
         ]
 
     # Clear all caches

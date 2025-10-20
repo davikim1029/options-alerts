@@ -328,8 +328,9 @@ class OptionBuyStrategy(BuyStrategy):
                     hold_msg = f" | HoldDays={hold_rec.get('RecommendedDays')}"
                     # include rationale if you want more verbosity (comment/uncomment)
                     hold_rationale = hold_rec.get("Rationale")
+                    hold_source = hold_rec.get("source")
                     if hold_rationale:
-                        hold_msg += f" | Rationale: {hold_rationale}"
+                        hold_msg += f" | Rationale: {hold_rationale} | Source: {hold_source}"
                     summary = summary + hold_msg
                 except Exception as e:
                     # do not change buy result if estimator fails

@@ -182,9 +182,10 @@ def analyze_ticker(ticker, options, context, buy_strategy, caches, config, debug
                 score_match = re.search(r'Score=\d+(?:\.\d+)?', message)
                 hold_match = re.search(r'(HoldDays=\d+)', message)
                 rationale_match = re.search(r'(Rationale:\s*[^|]+)', message)
+                source_match = re.search(r'(Source:\s*[^|]+)', message)
 
                 # Combine found fields
-                parts = [m.group(0) for m in [score_match, hold_match, rationale_match] if m]
+                parts = [m.group(0) for m in [score_match, hold_match, rationale_match, source_match] if m]
                 parsed = " | ".join(parts)
                 msg = f"Buy: {getattr(opt, 'displaySymbol', '?')}/Ask: {getattr(opt, 'ask', -1) * 100} | {parsed}"
                 send_alert(msg)

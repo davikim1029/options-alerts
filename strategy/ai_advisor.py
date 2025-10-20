@@ -512,7 +512,7 @@ class AIHoldingAdvisor:
                 "RecommendedDays": int(days),
                 "Confidence": float(conf),
                 "Rationale": rationale,
-                "source": getattr(self.ai_interface, "provider", "ai"),
+                "source": self.ai_interface.provider.name,
                 "raw_model_text": model_text
             }
             return result

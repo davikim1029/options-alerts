@@ -66,9 +66,15 @@ class AIModelInterface:
         Pick provider from env (preferred first) and return configured interface.
         """
         provider_order = []
+        all_ai_models =  [AI_MODEL.OPENAI, AI_MODEL.OPENROUTER, AI_MODEL.HUGGINGFACE, AI_MODEL.OLLAMA]
         if preferred:
-            provider_order.append(preferred.lower())
-        provider_order += [AI_MODEL.OPENAI, AI_MODEL.OPENROUTER, AI_MODEL.HUGGINGFACE, AI_MODEL.OLLAMA]
+            provider_order.append(preferred)
+            filtered_list = [item for item in all_ai_models if item != preferred]
+        else:
+            filtered_list = all_ai_models
+
+        provider_order += filtered_list
+        
         seen = set()
         for p in provider_order:
             if not p or p in seen:
@@ -109,41 +115,47 @@ class AIModelInterface:
         return None
 
     def _post_with_retries(self, url: str, headers: Dict[str, str], json_payload: Dict[str, Any],
-                           retries: int = 2, backoff: float = 1.0):
+                        retries: int = 2, backoff: float = 1.0):
         """
-        Retry loop for POST requests. If we receive a 429, mark the rate cache (so system backs off).
+        Perform POST with limited retries. If we hit 429 (rate limit), mark provider
+        as rate-limited in cache and return None immediately (no retry sleep).
         """
         last_exc = None
         for attempt in range(1, retries + 2):
             try:
                 resp = requests.post(url, headers=headers, json=json_payload, timeout=self.timeout)
+
+                # --- Handle rate limit immediately ---
                 if resp.status_code == 429:
-                    logger.logMessage(f"[{self.provider}] rate limited (429). attempt {attempt}")
-                    # mark rate limit in provided cache (conservative TTL)
+                    logger.logMessage(f"[{self.provider}] rate limited (429). Skipping retries.")
                     if self.rate_cache is not None:
                         try:
-                            self.rate_cache.add(self.provider, int(os.getenv("AI_RATE_LIMIT_TTL", "60")))
-                            logger.logMessage(f"[RateLimitCache] Marked AIModel as rate-limited for {int(os.getenv('AI_RATE_LIMIT_TTL', '60'))}s")
-                        except Exception:
-                            logger.logMessage("Failed to add AI rate limit to cache")
-                    time.sleep(backoff * attempt)
-                    last_exc = Exception("rate_limited")
-                    continue
+                            ttl = int(os.getenv("AI_RATE_LIMIT_TTL", "60"))
+                            self.rate_cache.add(self.provider, ttl)
+                            logger.logMessage(f"[RateLimitCache] Marked {self.provider} as rate-limited for {ttl}s")
+                        except Exception as e:
+                            logger.logMessage(f"Failed to add {self.provider} to RateLimitCache: {e}")
+                    return None  # no retries, caller will rotate to next provider
+
+                # --- Normal success path ---
                 resp.raise_for_status()
                 return resp
+
             except requests.HTTPError as he:
-                # For 4xx errors other than 429, return resp so caller can inspect (e.g., 422).
+                # Allow caller to handle specific 400/422 errors
                 if 'resp' in locals() and resp is not None and resp.status_code in (400, 422):
                     logger.logMessage(f"[{self.provider}] HTTP {resp.status_code}: {resp.text}")
                     return resp
                 last_exc = he
+
             except Exception as e:
                 last_exc = e
                 logger.logMessage(f"[{self.provider}] request attempt {attempt} failed: {e}")
                 time.sleep(backoff * attempt)
-        
-        # ultimately fail
+
+        # all attempts failed
         raise last_exc
+
 
     def call(self, prompt: str) -> Optional[str]:
         """
@@ -371,7 +383,7 @@ class AIHoldingAdvisor:
         prompt = (
             "You are a concise financial analyst. Given the following structured option metrics and a base heuristic suggestion, "
             "return a JSON object with fields: RecommendedDays (int), Confidence (0.0-1.0 float), Rationale (string). "
-            "ONLY return JSON (no extra commentary). If uncertain, return the heuristic base suggestion unchanged.\n\n"
+            "ONLY return JSON (no extra commentary). If uncertain, return an explanation of why you are uncertain followed up with the heuristic base suggestion.\n\n"
             f"METRICS: {safe_str}\n"
             f"SENTIMENT: {None if sentiment_score is None else float(sentiment_score)}\n\n"
             f"BASE_SUGGESTION: {json.dumps(base)}\n\n"
@@ -380,41 +392,76 @@ class AIHoldingAdvisor:
         return prompt
 
     def _call_and_parse(self, prompt: str) -> Optional[Dict[str, Any]]:
+        """
+        Try calling all available AI providers in order until one succeeds.
+        Automatically skips rate-limited providers (as marked in RateLimitCache).
+        Returns parsed JSON dict or None if all providers fail.
+        """
         if not self.ai_interface:
             logger.logMessage("No AI interface configured.")
             return None
 
-        raw = self.ai_interface.call(prompt)
-        if not raw:
-            logger.logMessage("AI returned no text.")
+        tried = set()
+        result = None
+
+        # Loop until we’ve tried all providers or succeed
+        while self.ai_interface and self.ai_interface.provider not in tried:
+            provider_name = self.ai_interface.provider
+            tried.add(provider_name)
+
+            # Skip if rate-limited
+            if self.rate_cache and self.rate_cache.is_cached(provider_name):
+                logger.logMessage(f"[AIHoldingAdvisor] Skipping {provider_name} (rate-limited in cache)")
+                self.ai_interface = AIModelInterface.create_from_env(rate_cache=self.rate_cache)
+                continue
+
+            # Attempt call
+            raw = self.ai_interface.call(prompt)
+
+            if not raw:
+                logger.logMessage(f"[AIHoldingAdvisor] {provider_name} returned no text or failed.")
+                # Rotate to next provider
+                self.ai_interface = AIModelInterface.create_from_env(rate_cache=self.rate_cache)
+                continue
+
+            # Try parsing output
+            parsed = _extract_json_from_text(raw)
+            if parsed:
+                result = parsed
+                break
+
+            # Fallback simple parsing
+            try:
+                d = {}
+                for line in raw.splitlines():
+                    if ":" in line:
+                        k, v = line.split(":", 1)
+                        k = k.strip().strip('"').strip("'")
+                        v = v.strip()
+                        if re.match(r"^-?\d+$", v):
+                            d[k] = int(v)
+                        else:
+                            try:
+                                d[k] = float(v)
+                            except Exception:
+                                d[k] = v
+                if "RecommendedDays" in d:
+                    result = d
+                    break
+            except Exception:
+                pass
+
+            # Last resort — not parseable, move to next provider
+            logger.logMessage(f"[AIHoldingAdvisor] {provider_name} output not parseable. Switching provider.")
+            self.ai_interface = AIModelInterface.create_from_env(rate_cache=self.rate_cache)
+
+        # Out of providers or succeeded
+        if not result:
+            logger.logMessage("[AIHoldingAdvisor] All AI providers exhausted or rate-limited.")
             return None
 
-        parsed = _extract_json_from_text(raw)
-        if parsed:
-            return parsed
+        return result
 
-        # Try simple line-parsing fallback (key: value)
-        try:
-            d = {}
-            for line in raw.splitlines():
-                if ":" in line:
-                    k, v = line.split(":", 1)
-                    k = k.strip().strip('"').strip("'")
-                    v = v.strip()
-                    if re.match(r"^-?\d+$", v):
-                        d[k] = int(v)
-                    else:
-                        try:
-                            d[k] = float(v)
-                        except Exception:
-                            d[k] = v
-            if "RecommendedDays" in d:
-                return d
-        except Exception:
-            pass
-
-        # Last resort deliver raw text
-        return {"raw_text": raw}
 
     def suggest_hold_period(self, option_data: Dict[str, Any], sentiment_score: Optional[float] = None) -> Dict[str, Any]:
         """

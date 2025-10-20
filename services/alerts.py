@@ -1,53 +1,69 @@
 # alerts.py
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from cryptography.fernet import Fernet
 import os
-from dotenv import load_dotenv
+import smtplib
 import time
+from email.mime.text import MIMEText
+from cryptography.fernet import Fernet
+from dotenv import load_dotenv
 from services.logging.logger_singleton import getLogger
-
 
 logger = getLogger()
 
 
-def send_alert(message,debug:bool = False):
+def send_alert(message: str, debug: bool = False):
+    """
+    Send an alert via SMS (email-to-text gateway). If the message exceeds
+    a single text length, it will be split into multiple chunks.
+
+    Falls back gracefully and logs all issues.
+    """
     load_dotenv()
 
     EMAIL_FROM = os.getenv("EMAIL_FROM")
     EMAIL_PASS = load_encrypted_password()
-    EMAIL_TO = os.getenv("EMAIL_TO")
-    SMS_TO = os.getenv("SMS_TO", None)
-    
-    # Send Email
-    #msg = MIMEMultipart()
-    #msg['From'] = EMAIL_FROM
-    #msg['To'] = EMAIL_TO
-    #msg['Subject'] = f"[Cheap Call] {alert['Ticker']} ${alert['Strike']}"
+    EMAIL_HOST = os.getenv("EMAIL_HOST")
+    EMAIL_PORT = int(os.getenv("EMAIL_PORT"))
+    SMS_TO = os.getenv("SMS_TO")
 
-    #msg.attach(MIMEText(body, 'plain'))
+    if not all([EMAIL_FROM, EMAIL_PASS, EMAIL_HOST, EMAIL_PORT, SMS_TO]):
+        logger.logMessage("[ALERT] Missing required email/SMS environment variables.")
+        return
 
-    with smtplib.SMTP_SSL(os.getenv("EMAIL_HOST"), int(os.getenv("EMAIL_PORT"))) as server:
-        try:
+    MAX_SMS_LENGTH = 142
+
+    try:
+        with smtplib.SMTP_SSL(EMAIL_HOST, EMAIL_PORT) as server:
             server.login(EMAIL_FROM, EMAIL_PASS)
-            
-            #Send Email
-            #server.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())  # Send the email
-            #print(f"Email sent to {EMAIL_FROM}")
 
-            # Send SMS via Email-to-Text (optional)
-            if SMS_TO:
-                sms_msg = MIMEText(message)
-                sms_msg['From'] = EMAIL_FROM
-                sms_msg['To'] = SMS_TO
+            # Split the message into chunks if needed
+            chunks = _split_message(message, MAX_SMS_LENGTH)
+
+            for idx, chunk in enumerate(chunks, 1):
+                sms_msg = MIMEText(chunk)
+                sms_msg["From"] = EMAIL_FROM
+                sms_msg["To"] = SMS_TO
+                
+                if len(chunks) > 1:
+                    sms_msg["Subject"] = f" (Part {idx}/{len(chunks)})"
+                else:
+                    sms_msg["Subject"] = ""
+
                 server.send_message(sms_msg)
                 if debug:
-                    logger.logMessage(f"Text sent to {SMS_TO}")
-        except Exception as e:
-            logger.logMessage(e)
+                    logger.logMessage(f"Text part {idx}/{len(chunks)} sent to {SMS_TO}")
 
-def send_alert_alternate(message):
+                # Avoid tripping carrier limits or rate filters
+                time.sleep(0.5)
+
+    except Exception as e:
+        logger.logMessage(f"[ALERT ERROR] {e}")
+
+
+def send_alert_alternate(message: str):
+    """
+    Alternate fallback alert sender using STARTTLS.
+    """
+    load_dotenv()
     to_number = os.getenv("SMS_TO")
     smtp_server = os.getenv("EMAIL_HOST")
     smtp_port = int(os.getenv("EMAIL_PORT"))
@@ -58,22 +74,21 @@ def send_alert_alternate(message):
         logger.logMessage(f"[ALERT] {message}")
         return
 
-    from_addr = smtp_user
-    to_addr = to_number
-
     try:
         server = smtplib.SMTP(smtp_server, smtp_port)
         server.starttls()
         server.login(smtp_user, smtp_pass)
-        server.sendmail(from_addr, to_addr, message)
+        server.sendmail(smtp_user, to_number, message)
         server.quit()
         logger.logMessage(f"[Alert sent] {message}")
     except Exception as e:
         logger.logMessage(f"[Alert error] {e}")
 
 
-#Load password for notifications         
-def load_encrypted_password():
+def load_encrypted_password() -> str:
+    """
+    Load and decrypt the email password from local encryption files.
+    """
     with open("encryption/secret.key", "rb") as key_file:
         key = key_file.read()
 
@@ -82,3 +97,32 @@ def load_encrypted_password():
 
     fernet = Fernet(key)
     return fernet.decrypt(encrypted).decode()
+
+
+def _split_message(message: str, max_length: int):
+    """
+    Splits the message into chunks that fit within max_length.
+    Attempts to split on line breaks or word boundaries where possible.
+    """
+    if len(message) <= max_length:
+        return [message]
+
+    chunks = []
+    while message:
+        if len(message) <= max_length:
+            chunks.append(message)
+            break
+
+        # Try to split at the last newline or space within the limit
+        split_point = max(
+            message.rfind("\n", 0, max_length),
+            message.rfind(" ", 0, max_length),
+        )
+
+        if split_point == -1:
+            split_point = max_length
+
+        chunks.append(message[:split_point].strip())
+        message = message[split_point:].strip()
+
+    return chunks

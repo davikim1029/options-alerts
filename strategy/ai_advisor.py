@@ -29,16 +29,21 @@ from __future__ import annotations
 import os
 import time
 import json
-import math
-import logging
 import re
+import enum
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 
 import requests
 
-from services.core.cache_manager import RateLimitCache  # your cache
+from services.core.cache_manager import RateLimitCache  
 from services.logging.logger_singleton import getLogger
+
+class AI_MODEL(enum.Enum):
+    OPENAI = "OPENAI"
+    OPENROUTER = "OPENROUTER"
+    HUGGINGFACE = "HUGGINGFACE"
+    OLLAMA = "OLLAMA"
 
 logger = getLogger()
 # Logger default level controlled by your singleton configuration
@@ -54,49 +59,48 @@ class AIModelInterface:
     base_url: Optional[str] = None
     timeout: int = 10
     rate_cache: Optional[RateLimitCache] = None
-    rate_limit_cache_key: str = "AIModel"  # key used to mark rate-limit
 
     @staticmethod
-    def create_from_env(preferred: Optional[str] = None, rate_cache: Optional[RateLimitCache] = None) -> Optional["AIModelInterface"]:
+    def create_from_env(preferred: Optional[AI_MODEL] = None, rate_cache: Optional[RateLimitCache] = None) -> Optional["AIModelInterface"]:
         """
         Pick provider from env (preferred first) and return configured interface.
         """
         provider_order = []
         if preferred:
             provider_order.append(preferred.lower())
-        provider_order += ["openai", "openrouter", "huggingface", "ollama"]
+        provider_order += [AI_MODEL.OPENAI, AI_MODEL.OPENROUTER, AI_MODEL.HUGGINGFACE, AI_MODEL.OLLAMA]
         seen = set()
         for p in provider_order:
             if not p or p in seen:
                 continue
             seen.add(p)
-            if p == "openai" and os.getenv("OPENAI_API_KEY"):
+            if p == AI_MODEL.OPENAI and os.getenv("OPENAI_API_KEY") and not rate_cache.is_cached(p):
                 return AIModelInterface(
-                    provider="openai",
+                    provider=p,
                     api_key=os.getenv("OPENAI_API_KEY"),
                     model_name=os.getenv("AI_MODEL_NAME", "gpt-4o-mini"),
                     timeout=int(os.getenv("AI_TIMEOUT", "20")),
                     rate_cache=rate_cache
                 )
-            if p == "openrouter" and os.getenv("OPENROUTER_API_KEY"):
+            if p == AI_MODEL.OPENROUTER and os.getenv("OPENROUTER_API_KEY") and not rate_cache.is_cached(p):
                 return AIModelInterface(
-                    provider="openrouter",
+                    provider=p,
                     api_key=os.getenv("OPENROUTER_API_KEY"),
                     model_name=os.getenv("AI_MODEL_NAME", "mistralai/mistral-7b-instruct:free"),
                     timeout=int(os.getenv("AI_TIMEOUT", "20")),
                     rate_cache=rate_cache
                 )
-            if p == "huggingface" and os.getenv("HUGGINGFACE_API_KEY"):
+            if p == AI_MODEL.HUGGINGFACE and os.getenv("HUGGINGFACE_API_KEY") and not rate_cache.is_cached(p):
                 return AIModelInterface(
-                    provider="huggingface",
+                    provider=p,
                     api_key=os.getenv("HUGGINGFACE_API_KEY"),
                     model_name=os.getenv("AI_MODEL_NAME", "gpt2"),
                     timeout=int(os.getenv("AI_TIMEOUT", "20")),
                     rate_cache=rate_cache
                 )
-            if p == "ollama" and os.getenv("OLLAMA_API_URL"):
+            if p == AI_MODEL.OLLAMA and os.getenv("OLLAMA_API_URL") and not rate_cache.is_cached(p):
                 return AIModelInterface(
-                    provider="ollama",
+                    provider=p,
                     base_url=os.getenv("OLLAMA_API_URL"),
                     model_name=os.getenv("AI_MODEL_NAME", "llama2"),
                     timeout=int(os.getenv("AI_TIMEOUT", "30")),
@@ -118,7 +122,7 @@ class AIModelInterface:
                     # mark rate limit in provided cache (conservative TTL)
                     if self.rate_cache is not None:
                         try:
-                            self.rate_cache.add(self.rate_limit_cache_key, int(os.getenv("AI_RATE_LIMIT_TTL", "60")))
+                            self.rate_cache.add(self.provider, int(os.getenv("AI_RATE_LIMIT_TTL", "60")))
                             logger.logMessage(f"[RateLimitCache] Marked AIModel as rate-limited for {int(os.getenv('AI_RATE_LIMIT_TTL', '60'))}s")
                         except Exception:
                             logger.logMessage("Failed to add AI rate limit to cache")
@@ -137,6 +141,7 @@ class AIModelInterface:
                 last_exc = e
                 logger.logMessage(f"[{self.provider}] request attempt {attempt} failed: {e}")
                 time.sleep(backoff * attempt)
+        
         # ultimately fail
         raise last_exc
 
@@ -147,7 +152,7 @@ class AIModelInterface:
         """
         # If rate cache is set and AI is currently marked rate-limited, skip
         try:
-            if self.rate_cache is not None and self.rate_cache.is_cached(self.rate_limit_cache_key):
+            if self.rate_cache is not None and self.rate_cache.is_cached(self.provider):
                 logger.logMessage("[AIModelInterface] AI rate-limited by cache; skipping call.")
                 return None
         except Exception:
@@ -155,13 +160,13 @@ class AIModelInterface:
             logger.logMessage("[AIModelInterface] rate cache check failed; proceeding.")
 
         try:
-            if self.provider == "openai":
+            if self.provider == AI_MODEL.OPENAI:
                 return self._call_openai(prompt)
-            if self.provider == "huggingface":
+            if self.provider == AI_MODEL.HUGGINGFACE:
                 return self._call_huggingface(prompt)
-            if self.provider == "openrouter":
+            if self.provider == AI_MODEL.OPENROUTER:
                 return self._call_openrouter(prompt)
-            if self.provider == "ollama":
+            if self.provider == AI_MODEL.OLLAMA:
                 return self._call_ollama(prompt)
             logger.logMessage("No AI provider configured")
             return None
@@ -170,7 +175,7 @@ class AIModelInterface:
             # On failure, mark rate-limited conservatively
             try:
                 if self.rate_cache is not None:
-                    self.rate_cache.add(self.rate_limit_cache_key, int(os.getenv("AI_RATE_LIMIT_TTL", "30")))
+                    self.rate_cache.add(self.provider, int(os.getenv("AI_RATE_LIMIT_TTL", "30")))
                     logger.logMessage("[AIModelInterface] Marked AI as temporarily rate-limited after exception.")
             except Exception:
                 pass
@@ -314,7 +319,7 @@ class AIHoldingAdvisor:
         self.use_ai_model = use_ai_model
         self.rate_cache = rate_cache
         self.ai_interface = ai_model_interface or AIModelInterface.create_from_env(
-            preferred=os.getenv("AI_MODEL_PROVIDER"), rate_cache=rate_cache
+            preferred=AI_MODEL.OPENROUTER, rate_cache=rate_cache
         )
 
     def _heuristic_recommendation(self, option_data: Dict[str, Any], sentiment_score: Optional[float]) -> Dict[str, Any]:

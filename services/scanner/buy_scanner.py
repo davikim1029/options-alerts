@@ -140,7 +140,7 @@ def analyze_ticker(ticker, options, context, buy_strategy, caches, config, debug
 
         # Single unified primary strategy evaluation
         try:
-            success, message, score = buy_strategy.should_buy(opt, local_context)
+            success, message, score = buy_strategy.should_buy(opt,caches, local_context)
             eval_result[("PrimaryStrategy", buy_strategy.name, "Result")] = success
             eval_result[("PrimaryStrategy", buy_strategy.name, "Message")] = message
             eval_result[("PrimaryStrategy", buy_strategy.name, "Score")] = score
@@ -180,8 +180,8 @@ def analyze_ticker(ticker, options, context, buy_strategy, caches, config, debug
             try:
                 # Regex patterns for the three fields
                 score_match = re.search(r'Score=\d+(?:\.\d+)?', message)
-                hold_match = re.search(r'HoldDays=.*?ReevalHrs=\d+', message)
-                rationale_match = re.search(r'Rationale:\s*Score\s*\d+(?:\.\d+)?', message)
+                hold_match = re.search(r'(HoldDays=\d+)', message)
+                rationale_match = re.search(r'(Rationale:\s*[^|]+)', message)
 
                 # Combine found fields
                 parts = [m.group(0) for m in [score_match, hold_match, rationale_match] if m]

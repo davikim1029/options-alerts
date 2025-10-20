@@ -4,8 +4,11 @@ from models.option import OptionContract
 from datetime import datetime
 import yfinance as yf
 import math
+import os
 from typing import Optional, List
 from services.logging.logger_singleton import getLogger
+from strategy.ai_advisor import AIHoldingAdvisor, AIModelInterface
+from services.core.cache_manager import RateLimitCache
 
 logger = getLogger()
 
@@ -53,7 +56,7 @@ class OptionBuyStrategy(BuyStrategy):
             return 0
         return 0
 
-    def should_buy(self, option: OptionContract, context: dict) -> tuple[bool, str, str]:
+    def should_buy(self, option: OptionContract,caches, context: dict) -> tuple[bool, str, str]:
         try:
             now = datetime.now().astimezone()
 
@@ -293,19 +296,38 @@ class OptionBuyStrategy(BuyStrategy):
 
             # Final dynamic thresholding
             vix_adj = self._vix_adjustment()
-            base_threshold = 14
+            base_threshold = 9
             threshold = base_threshold + vix_adj
 
-            summary = f"Score={score:.2f} | " + " | ".join(breakdown)
+            summary = f"[BUY SIGNAL] {option.symbol} | Score={score:.2f} | Factors: " + " | ".join(breakdown)
 
             if score >= threshold:
                 # --- optional: estimate holding period and append to summary ---
                 try:
-                    from strategy.hold_estimator import estimate_holding_period
-                    hold_rec = estimate_holding_period(option, context or {})
-                    hold_msg = f" | HoldDays={hold_rec.get('hold_days')} ({hold_rec.get('category')}) ReevalHrs={hold_rec.get('reevaluate_after_hours')}"
+
+                    rate_cache = getattr(caches, "rate", None)  # your scanner already provides this
+                    # create model interface automatically from env (preferred)
+                    ai_iface = AIModelInterface.create_from_env(preferred=os.getenv("AI_MODEL_PROVIDER"),rate_cache=rate_cache)
+                    advisor = AIHoldingAdvisor(use_ai_model=True, ai_model_interface=ai_iface,rate_cache=rate_cache)
+
+                    option_data = {
+                        "symbol": option.symbol,
+                        "Cost": float(getattr(option, "ask", 0)) * 100,
+                        "ImpliedVolatility": getattr(option.OptionGreeks, "iv", None),
+                        "Delta": getattr(option.OptionGreeks, "delta", None),
+                        "Theta": getattr(option.OptionGreeks, "theta", None),
+                        "Vega": getattr(option.OptionGreeks, "vega", None),
+                        "DaysToExpiry": (option.expiryDate - datetime.now().astimezone()).days if option.expiryDate else None,
+                        "Score": score
+                    }
+                    sent = context.get("sentiment_signal") if context else None
+                    hold_rec = advisor.suggest_hold_period(option_data, sent)
+                    # Append hold_rec summary to your summary string for alerts/logging
+
+
+                    hold_msg = f" | HoldDays={hold_rec.get('RecommendedDays')}"
                     # include rationale if you want more verbosity (comment/uncomment)
-                    hold_rationale = hold_rec.get("rationale")
+                    hold_rationale = hold_rec.get("Rationale")
                     if hold_rationale:
                         hold_msg += f" | Rationale: {hold_rationale}"
                     summary = summary + hold_msg

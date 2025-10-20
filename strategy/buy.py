@@ -296,7 +296,7 @@ class OptionBuyStrategy(BuyStrategy):
 
             # Final dynamic thresholding
             vix_adj = self._vix_adjustment()
-            base_threshold = 9
+            base_threshold = 14
             threshold = base_threshold + vix_adj
 
             summary = f"[BUY SIGNAL] {option.symbol} | Score={score:.2f} | Factors: " + " | ".join(breakdown)

@@ -29,7 +29,7 @@ def send_alert(message: str, debug: bool = False):
         logger.logMessage("[ALERT] Missing required email/SMS environment variables.")
         return
 
-    MAX_SMS_LENGTH = 142
+    MAX_SMS_LENGTH = 100
 
     try:
         with smtplib.SMTP_SSL(EMAIL_HOST, EMAIL_PORT) as server:
@@ -44,7 +44,7 @@ def send_alert(message: str, debug: bool = False):
                 sms_msg["To"] = SMS_TO
                 
                 if len(chunks) > 1:
-                    sms_msg["Subject"] = f" (Part {idx}/{len(chunks)})"
+                    sms_msg["Subject"] = f"Part {idx}/{len(chunks)}"
                 else:
                     sms_msg["Subject"] = ""
 

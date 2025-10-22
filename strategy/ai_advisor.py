@@ -33,262 +33,26 @@ import re
 import enum
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
-
+from services.scanner.scanner_utils import wait_rate_limit
+from strategy.FinMA7BLocal import FinMA7BLocal
 import requests
 
 from services.core.cache_manager import RateLimitCache  
 from services.logging.logger_singleton import getLogger
+from strategy.fin_ai_singleton import get_ai_interface
+from strategy.ai_constants import AIModelInterface,AI_MODEL
 
-class AI_MODEL(enum.Enum):
-    OPENAI = "OPENAI"
-    OPENROUTER = "OPENROUTER"
-    HUGGINGFACE = "HUGGINGFACE"
-    OLLAMA = "OLLAMA"
+
+class RateLimitError(Exception):
+    """Raised when Rate Limit hit."""
+    pass
 
 logger = getLogger()
+
+from huggingface_hub import login
+import os
+login(token=os.getenv("HUGGINGFACE_TOKEN"))
 # Logger default level controlled by your singleton configuration
-
-# -------------------------
-# AI Model Interface & Adapters
-# -------------------------
-@dataclass
-class AIModelInterface:
-    provider: str
-    api_key: Optional[str] = None
-    model_name: Optional[str] = None
-    base_url: Optional[str] = None
-    timeout: int = 10
-    rate_cache: Optional[RateLimitCache] = None
-
-    @staticmethod
-    def create_from_env(preferred: Optional[AI_MODEL] = None, rate_cache: Optional[RateLimitCache] = None) -> Optional["AIModelInterface"]:
-        """
-        Pick provider from env (preferred first) and return configured interface.
-        """
-        provider_order = []
-        all_ai_models =  [AI_MODEL.OPENAI, AI_MODEL.OPENROUTER, AI_MODEL.HUGGINGFACE, AI_MODEL.OLLAMA]
-        if preferred:
-            provider_order.append(preferred)
-            filtered_list = [item for item in all_ai_models if item != preferred]
-        else:
-            filtered_list = all_ai_models
-
-        provider_order += filtered_list
-        
-        seen = set()
-        for p in provider_order:
-            if not p or p in seen:
-                continue
-            seen.add(p)
-            if p == AI_MODEL.OPENAI and os.getenv("OPENAI_API_KEY") and not rate_cache.is_cached(p):
-                return AIModelInterface(
-                    provider=p,
-                    api_key=os.getenv("OPENAI_API_KEY"),
-                    model_name=os.getenv("AI_MODEL_NAME", "gpt-4o-mini"),
-                    timeout=int(os.getenv("AI_TIMEOUT", "20")),
-                    rate_cache=rate_cache
-                )
-            if p == AI_MODEL.OPENROUTER and os.getenv("OPENROUTER_API_KEY") and not rate_cache.is_cached(p):
-                return AIModelInterface(
-                    provider=p,
-                    api_key=os.getenv("OPENROUTER_API_KEY"),
-                    model_name=os.getenv("AI_MODEL_NAME", "mistralai/mistral-7b-instruct:free"),
-                    timeout=int(os.getenv("AI_TIMEOUT", "20")),
-                    rate_cache=rate_cache
-                )
-            if p == AI_MODEL.HUGGINGFACE and os.getenv("HUGGINGFACE_API_KEY") and not rate_cache.is_cached(p):
-                return AIModelInterface(
-                    provider=p,
-                    api_key=os.getenv("HUGGINGFACE_API_KEY"),
-                    model_name=os.getenv("AI_MODEL_NAME", "gpt2"),
-                    timeout=int(os.getenv("AI_TIMEOUT", "20")),
-                    rate_cache=rate_cache
-                )
-            if p == AI_MODEL.OLLAMA and os.getenv("OLLAMA_API_URL") and not rate_cache.is_cached(p):
-                return AIModelInterface(
-                    provider=p,
-                    base_url=os.getenv("OLLAMA_API_URL"),
-                    model_name=os.getenv("AI_MODEL_NAME", "llama2"),
-                    timeout=int(os.getenv("AI_TIMEOUT", "30")),
-                    rate_cache=rate_cache
-                )
-        return None
-
-    def _post_with_retries(self, url: str, headers: Dict[str, str], json_payload: Dict[str, Any],
-                        retries: int = 2, backoff: float = 1.0):
-        """
-        Perform POST with limited retries. If we hit 429 (rate limit), mark provider
-        as rate-limited in cache and return None immediately (no retry sleep).
-        """
-        last_exc = None
-        for attempt in range(1, retries + 2):
-            try:
-                resp = requests.post(url, headers=headers, json=json_payload, timeout=self.timeout)
-
-                # --- Handle rate limit immediately ---
-                if resp.status_code == 429:
-                    logger.logMessage(f"[{self.provider}] rate limited (429). Skipping retries.")
-                    if self.rate_cache is not None:
-                        try:
-                            ttl = int(os.getenv("AI_RATE_LIMIT_TTL", "60"))
-                            self.rate_cache.add(self.provider, ttl)
-                            logger.logMessage(f"[RateLimitCache] Marked {self.provider} as rate-limited for {ttl}s")
-                        except Exception as e:
-                            logger.logMessage(f"Failed to add {self.provider} to RateLimitCache: {e}")
-                    return None  # no retries, caller will rotate to next provider
-
-                # --- Normal success path ---
-                resp.raise_for_status()
-                return resp
-
-            except requests.HTTPError as he:
-                # Allow caller to handle specific 400/422 errors
-                if 'resp' in locals() and resp is not None and resp.status_code in (400, 422):
-                    logger.logMessage(f"[{self.provider}] HTTP {resp.status_code}: {resp.text}")
-                    return resp
-                last_exc = he
-
-            except Exception as e:
-                last_exc = e
-                logger.logMessage(f"[{self.provider}] request attempt {attempt} failed: {e}")
-                time.sleep(backoff * attempt)
-
-        # all attempts failed
-        raise last_exc
-
-
-    def call(self, prompt: str) -> Optional[str]:
-        """
-        Call the configured provider with the prompt. Returns raw text if successful,
-        otherwise None.
-        """
-        # If rate cache is set and AI is currently marked rate-limited, skip
-        try:
-            if self.rate_cache is not None and self.rate_cache.is_cached(self.provider):
-                logger.logMessage("[AIModelInterface] AI rate-limited by cache; skipping call.")
-                return None
-        except Exception:
-            # defensively continue (don't block AI if cache check errors)
-            logger.logMessage("[AIModelInterface] rate cache check failed; proceeding.")
-
-        try:
-            if self.provider == AI_MODEL.OPENAI:
-                return self._call_openai(prompt)
-            if self.provider == AI_MODEL.HUGGINGFACE:
-                return self._call_huggingface(prompt)
-            if self.provider == AI_MODEL.OPENROUTER:
-                return self._call_openrouter(prompt)
-            if self.provider == AI_MODEL.OLLAMA:
-                return self._call_ollama(prompt)
-            logger.logMessage("No AI provider configured")
-            return None
-        except Exception as e:
-            logger.logMessage(f"[AIModelInterface] call failed for {self.provider}: {e}")
-            # On failure, mark rate-limited conservatively
-            try:
-                if self.rate_cache is not None:
-                    self.rate_cache.add(self.provider, int(os.getenv("AI_RATE_LIMIT_TTL", "30")))
-                    logger.logMessage("[AIModelInterface] Marked AI as temporarily rate-limited after exception.")
-            except Exception:
-                pass
-            return None
-
-    # ---- provider adapters ----
-    def _call_openai(self, prompt: str) -> Optional[str]:
-        if not self.api_key:
-            raise RuntimeError("OPENAI_API_KEY missing")
-        url = "https://api.openai.com/v1/chat/completions"
-        model = self.model_name or "gpt-4o-mini"
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        messages = [
-            {"role": "system", "content": "You are a concise financial analyst producing a short JSON answer."},
-            {"role": "user", "content": prompt}
-        ]
-        payload = {"model": model, "messages": messages, "max_tokens": 400, "temperature": 0.25}
-        resp = self._post_with_retries(url, headers, payload)
-        if not resp:
-            return None
-        try:
-            data = resp.json()
-            text = data["choices"][0]["message"]["content"]
-            return text
-        except Exception:
-            logger.logMessage(f"[openai] unexpected response shape: {resp.text if resp is not None else 'None'}")
-            return None
-
-    def _call_huggingface(self, prompt: str) -> Optional[str]:
-        if not self.api_key:
-            raise RuntimeError("HUGGINGFACE_API_KEY missing")
-        model = self.model_name or "bigscience/bloomz"
-        url = f"https://api-inference.huggingface.co/models/{model}"
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        payload = {"inputs": prompt, "parameters": {"max_new_tokens": 256, "temperature": 0.2}}
-        resp = self._post_with_retries(url, headers, payload)
-        if not resp:
-            return None
-        try:
-            out = resp.json()
-            if isinstance(out, dict) and "error" in out:
-                logger.logMessage(f"[huggingface] error: {out.get('error')}")
-                return None
-            if isinstance(out, list) and len(out) and isinstance(out[0], dict):
-                return out[0].get("generated_text")
-            if isinstance(out, str):
-                return out
-            return json.dumps(out)
-        except Exception as e:
-            logger.logMessage(f"[huggingface] parse error: {e}")
-            return None
-
-    def _call_openrouter(self, prompt: str) -> Optional[str]:
-        if not self.api_key:
-            raise RuntimeError("OPENROUTER_API_KEY missing")
-
-        model = self.model_name or "mistralai/mistral-7b-instruct:free"
-        url = "https://openrouter.ai/api/v1/chat/completions"
-
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        payload = {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.2,
-        }
-
-        resp = self._post_with_retries(url, headers, payload)
-        if not resp:
-            return None
-
-        try:
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
-        except Exception:
-            logger.logMessage(f"[openrouter] unexpected response: {resp.text if resp is not None else 'None'}")
-            return None
-
-    def _call_ollama(self, prompt: str) -> Optional[str]:
-        base = self.base_url or os.getenv("OLLAMA_API_URL")
-        if not base:
-            raise RuntimeError("OLLAMA_API_URL missing")
-        model = self.model_name or "llama2"
-        url = f"{base.rstrip('/')}/api/models/{model}/completions"
-        headers = {"Content-Type": "application/json"}
-        payload = {"prompt": prompt, "max_tokens": 512, "temperature": 0.2}
-        resp = self._post_with_retries(url, headers, payload)
-        if not resp:
-            return None
-        try:
-            data = resp.json()
-            if isinstance(data, dict) and data.get("choices"):
-                return data["choices"][0]["message"]["content"]
-            return json.dumps(data)
-        except Exception as e:
-            logger.logMessage(f"[ollama] parse error: {e}")
-            return None
 
 
 # -------------------------
@@ -324,15 +88,11 @@ def _extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
 class AIHoldingAdvisor:
     def __init__(self, use_ai_model: bool = True, ai_model_interface: Optional[AIModelInterface] = None,
                  rate_cache: Optional[RateLimitCache] = None):
-        """
-        If ai_model_interface is None, we will attempt to create one from env.
-        Pass rate_cache if you want AI calls to respect/mark rate-limits.
-        """
         self.use_ai_model = use_ai_model
         self.rate_cache = rate_cache
-        self.ai_interface = ai_model_interface or AIModelInterface.create_from_env(
-            preferred=AI_MODEL.OPENROUTER, rate_cache=rate_cache
-        )
+        # Use passed interface OR the singleton
+        self.ai_interface = ai_model_interface or get_ai_interface(rate_cache)
+
 
     def _heuristic_recommendation(self, option_data: Dict[str, Any], sentiment_score: Optional[float]) -> Dict[str, Any]:
         days = 3
@@ -370,6 +130,7 @@ class AIHoldingAdvisor:
 
         days = max(1, min(days, 14))
         return {
+            "ShouldBuy": bool(True),
             "RecommendedDays": int(days),
             "Confidence": 0.6,
             "Rationale": " ".join(rationale) or "Standard holding duration.",
@@ -381,12 +142,13 @@ class AIHoldingAdvisor:
         safe = {k: option_data.get(k) for k in ("symbol", "Cost", "ImpliedVolatility", "Delta", "Theta", "Vega", "DaysToExpiry", "Score")}
         safe_str = json.dumps(safe, default=str)
         prompt = (
-            "You are a concise financial analyst. Given the following structured option metrics and a base heuristic suggestion, "
-            "return a JSON object with fields: RecommendedDays (int), Confidence (0.0-1.0 float), Rationale (string). "
-            "ONLY return JSON (no extra commentary). If uncertain, return an explanation of why you are uncertain followed up with the heuristic base suggestion.\n\n"
+            "You are a concise financial analyst. Given the following structured call option metrics and new sentiment score, "
+            "analyze them and propose whether or not the call option should be a buy (ShouldBuy), how long to hold onto it for (RecommendedDays), "
+            "your confidence in the suggestion (Confidence), and your rationale behind it (Rationale). "
+            "Return the response as a JSON object with fields: ShouldBuy(bool), RecommendedDays (int), Confidence (0.0-1.0 float), Rationale (string). "
+            "ONLY return JSON (no extra commentary).\n\n"
             f"METRICS: {safe_str}\n"
             f"SENTIMENT: {None if sentiment_score is None else float(sentiment_score)}\n\n"
-            f"BASE_SUGGESTION: {json.dumps(base)}\n\n"
             "Return JSON now."
         )
         return prompt
@@ -394,73 +156,88 @@ class AIHoldingAdvisor:
     def _call_and_parse(self, prompt: str) -> Optional[Dict[str, Any]]:
         """
         Try calling all available AI providers in order until one succeeds.
-        Automatically skips rate-limited providers (as marked in RateLimitCache).
+        Uses preloaded local model for Hugging Face provider (if available),
+        otherwise dynamically instantiates provider interface.
         Returns parsed JSON dict or None if all providers fail.
         """
+        from strategy.fin_ai_singleton import get_ai_interface  # lazy import to avoid circulars
+
+        logger = getLogger()
+
         if not self.ai_interface:
             logger.logMessage("No AI interface configured.")
             return None
 
-        tried = set()
-        result = None
+        attempts: Dict[str, int] = {p.name: 0 for p in self.ai_interface.provider_order}
+        provider_index = 0
 
-        # Loop until we’ve tried all providers or succeed
-        while self.ai_interface and self.ai_interface.provider not in tried:
-            provider_name = self.ai_interface.provider
-            tried.add(provider_name)
+        while provider_index < len(self.ai_interface.provider_order):
+            provider_enum = self.ai_interface.provider_order[provider_index]
+            provider_name = provider_enum.name
+            attempts[provider_name] += 1
 
-            # Skip if rate-limited
+            # Skip exhausted providers
+            if attempts[provider_name] > 2:
+                logger.logMessage(f"[AIHoldingAdvisor] Skipping {provider_name} (max retries reached)")
+                provider_index += 1
+                continue
+
+            # Use preloaded local Hugging Face model if available
+            if provider_enum == AI_MODEL.HUGGINGFACE:
+                ai_iface = get_ai_interface(rate_cache=self.rate_cache)
+            else:
+                ai_iface = AIModelInterface.create_from_env(preferred=provider_enum, rate_cache=self.rate_cache)
+
+            if not ai_iface:
+                logger.logMessage(f"[AIHoldingAdvisor] {provider_name} unavailable or rate-limited; rotating...")
+                provider_index += 1
+                continue
+
+            # Handle rate limits
             if self.rate_cache and self.rate_cache.is_cached(provider_name):
-                logger.logMessage(f"[AIHoldingAdvisor] Skipping {provider_name} (rate-limited in cache)")
-                self.ai_interface = AIModelInterface.create_from_env(rate_cache=self.rate_cache)
-                continue
+                if attempts[provider_name] == 1:
+                    logger.logMessage(f"[AIHoldingAdvisor] {provider_name} rate-limited, waiting for cooldown...")
+                    try:
+                        wait_rate_limit(self.rate_cache, provider_name)
+                    except Exception as e:
+                        logger.logMessage(f"[AIHoldingAdvisor] wait_rate_limit error for {provider_name}: {e}")
+                    # Retry same provider after waiting
+                    continue
+                else:
+                    logger.logMessage(f"[AIHoldingAdvisor] {provider_name} still rate-limited after wait, rotating...")
+                    provider_index += 1
+                    continue
 
-            # Attempt call
-            raw = self.ai_interface.call(prompt)
-
-            if not raw:
-                logger.logMessage(f"[AIHoldingAdvisor] {provider_name} returned no text or failed.")
-                # Rotate to next provider
-                self.ai_interface = AIModelInterface.create_from_env(rate_cache=self.rate_cache)
-                continue
-
-            # Try parsing output
-            parsed = _extract_json_from_text(raw)
-            if parsed:
-                result = parsed
-                break
-
-            # Fallback simple parsing
+            # Attempt model call
             try:
-                d = {}
-                for line in raw.splitlines():
-                    if ":" in line:
-                        k, v = line.split(":", 1)
-                        k = k.strip().strip('"').strip("'")
-                        v = v.strip()
-                        if re.match(r"^-?\d+$", v):
-                            d[k] = int(v)
-                        else:
-                            try:
-                                d[k] = float(v)
-                            except Exception:
-                                d[k] = v
-                if "RecommendedDays" in d:
-                    result = d
-                    break
-            except Exception:
-                pass
+                raw = ai_iface.call(prompt)
+                if not raw:
+                    logger.logMessage(f"[AIHoldingAdvisor] Empty response from {provider_name}")
+                    provider_index += 1
+                    continue
 
-            # Last resort — not parseable, move to next provider
-            logger.logMessage(f"[AIHoldingAdvisor] {provider_name} output not parseable. Switching provider.")
-            self.ai_interface = AIModelInterface.create_from_env(rate_cache=self.rate_cache)
+                parsed = _extract_json_from_text(raw)
+                if parsed:
+                    parsed["raw_model_text"] = raw
+                    parsed["source"] = provider_name
+                    return parsed
+                else:
+                    logger.logMessage(f"[AIHoldingAdvisor] Failed to parse JSON from {provider_name}, rotating...")
 
-        # Out of providers or succeeded
-        if not result:
-            logger.logMessage("[AIHoldingAdvisor] All AI providers exhausted or rate-limited.")
-            return None
+            except RateLimitError:
+                if self.rate_cache:
+                    self.rate_cache.add(provider_name, int(os.getenv("AI_RATE_LIMIT_TTL", "30")))
+                logger.logMessage(f"[AIHoldingAdvisor] Rate limit hit for {provider_name}, rotating...")
+                provider_index += 1
+                continue
 
-        return result
+            except Exception as e:
+                logger.logMessage(f"[AIHoldingAdvisor] Error with {provider_name}: {e}")
+                provider_index += 1
+                continue
+
+        logger.logMessage("[AIHoldingAdvisor] All AI providers exhausted or rate-limited.")
+        return None
 
 
     def suggest_hold_period(self, option_data: Dict[str, Any], sentiment_score: Optional[float] = None) -> Dict[str, Any]:
@@ -505,10 +282,14 @@ class AIHoldingAdvisor:
             except Exception:
                 conf = base.get("Confidence", 0.6)
             rationale = str(model_text.get("Rationale", "")).strip() or base.get("Rationale", "")
+            should_buy = bool(model_text.get("ShouldBuy"))
+            if should_buy is None:
+                base.get("ShouldBuy",True)
 
             days = max(1, min(30, days))
 
             result = {
+                "ShouldBuy": bool(should_buy),
                 "RecommendedDays": int(days),
                 "Confidence": float(conf),
                 "Rationale": rationale,

@@ -256,10 +256,13 @@ def _load_transformer_pipeline():
         return _transformer_pipeline
     try:
         import transformers
-        model_name = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
+        model_name = "ProsusAI/finbert"
         tok = transformers.AutoTokenizer.from_pretrained(model_name)
+        # If the tokenizer has no pad_token, set it to eos_token
+        if tok.pad_token is None:
+            tok.pad_token = tok.eos_token
         model = transformers.AutoModelForSequenceClassification.from_pretrained(model_name)
-        _transformer_pipeline = transformers.pipeline("sentiment-analysis", model=model, tokenizer=tok, device=-1)
+        _transformer_pipeline = transformers.pipeline("sentiment-analysis", model=model, tokenizer=tok)
         logger.logMessage("[Sentiment] Transformer pipeline loaded")
     except Exception as e:
         logger.logMessage(f"[Sentiment] Transformer load failed: {e}")

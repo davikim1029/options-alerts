@@ -53,7 +53,7 @@ def send_alert(message: str, debug: bool = False):
                     logger.logMessage(f"Text part {idx}/{len(chunks)} sent to {SMS_TO}")
 
                 # Avoid tripping carrier limits or rate filters
-                time.sleep(0.5)
+                time.sleep(2)
 
     except Exception as e:
         logger.logMessage(f"[ALERT ERROR] {e}")

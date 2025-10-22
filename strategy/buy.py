@@ -7,7 +7,8 @@ import math
 import os
 from typing import Optional, List
 from services.logging.logger_singleton import getLogger
-from strategy.ai_advisor import AIHoldingAdvisor, AIModelInterface,AI_MODEL
+from strategy.ai_advisor import AIHoldingAdvisor, AIModelInterface
+from strategy.ai_constants import AI_MODEL
 from services.core.cache_manager import RateLimitCache
 
 logger = getLogger()
@@ -307,8 +308,7 @@ class OptionBuyStrategy(BuyStrategy):
 
                     rate_cache = getattr(caches, "rate", None)  # your scanner already provides this
                     # create model interface automatically from env (preferred)
-                    ai_iface = AIModelInterface.create_from_env(preferred=AI_MODEL.OPENROUTER,rate_cache=rate_cache)
-                    advisor = AIHoldingAdvisor(use_ai_model=True, ai_model_interface=ai_iface,rate_cache=rate_cache)
+                    advisor = AIHoldingAdvisor(rate_cache=rate_cache)
 
                     option_data = {
                         "symbol": option.symbol,
@@ -323,7 +323,7 @@ class OptionBuyStrategy(BuyStrategy):
                     sent = context.get("sentiment_signal") if context else None
                     hold_rec = advisor.suggest_hold_period(option_data, sent)
                     # Append hold_rec summary to your summary string for alerts/logging
-
+                        
 
                     hold_msg = f" | HoldDays={hold_rec.get('RecommendedDays')}"
                     # include rationale if you want more verbosity (comment/uncomment)
@@ -338,8 +338,7 @@ class OptionBuyStrategy(BuyStrategy):
                         logger.logMessage(f"[BuyStrategy] hold estimator failed: {e}")
                     except Exception:
                         pass
-
-                return True, summary, score
+                return hold_rec.get("ShouldBuy",True) , summary, score
             else:
                 return False, summary, score
 

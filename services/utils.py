@@ -9,6 +9,8 @@ from pathlib import Path
 import threading
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from services.logging.logger_singleton import getLogger
+
 
 
 

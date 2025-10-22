@@ -43,7 +43,7 @@ def getSentimentPipeline():
             # Load the pipeline
             logger = getLogger()
             logger.logMessage("Loading Pipeline")
-            model_name = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
+            model_name = "ProsusAI/finbert"
             tokenizer = transformers.AutoTokenizer.from_pretrained(model_name)
             model = transformers.AutoModelForSequenceClassification.from_pretrained(
                 model_name,
@@ -55,7 +55,6 @@ def getSentimentPipeline():
                 "sentiment-analysis",
                 model=model,
                 tokenizer=tokenizer,
-                device=-1
             )
 
             # Signal all waiting threads

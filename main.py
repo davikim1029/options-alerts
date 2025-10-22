@@ -24,6 +24,7 @@ from performance.performance_comparison import perf_comp_entry
 from testing.get_ticker_opts import get_ticker_opts_entry,get_ticker_expiry_entry
 
 
+
 # Disable GPU / MPS fallback
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"

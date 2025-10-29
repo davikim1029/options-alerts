@@ -115,13 +115,6 @@ def run_scan(stop_event, mode=None, consumer=None, debug=False):
         caches = ThreadManager._caches
     else: 
         caches = Caches()
-        
-        
-    rate_cache = getattr(caches, "rate", None)
-    from strategy.fin_ai_singleton import get_ai_interface
-    logger.logMessage("[Scanner] Initializing AI interface...")
-    ai_model = get_ai_interface(rate_cache=rate_cache)
-    logger.logMessage("[Scanner] ✅ AI model ready.")
     
     api_worker_mod.init_worker(consumer,stop_event=stop_event, min_interval=2)
     consumer.apiWorker = api_worker_mod.get_worker()

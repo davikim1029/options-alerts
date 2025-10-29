@@ -25,9 +25,7 @@ import re
 
 # new: sentiment aggregator import
 from services.news_aggregator import get_sentiment_signal
-from strategy.FinMA7BLocal import FinMA7BLocal,get_finma_model
 
-print("[Main] Preloading FinMA model before threads start...")
 logger = getLogger()
 
 # ------------------------- Result container -------------------------

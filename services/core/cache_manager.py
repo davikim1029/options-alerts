@@ -61,6 +61,7 @@ class CacheManager:
     # ----------------------------
     def _load_cache(self):
         if not os.path.exists(self.filepath):
+            os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
             with open(self.filepath, "w") as f:
                 json.dump({}, f)
             return

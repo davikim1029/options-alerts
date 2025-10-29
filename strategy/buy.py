@@ -7,7 +7,7 @@ import math
 import os
 from typing import Optional, List
 from services.logging.logger_singleton import getLogger
-from strategy.ai_advisor import AIHoldingAdvisor, AIModelInterface
+from strategy.ai_advisor import AIHoldingAdvisor
 from strategy.ai_constants import AI_MODEL
 from services.core.cache_manager import RateLimitCache
 
@@ -308,7 +308,7 @@ class OptionBuyStrategy(BuyStrategy):
 
                     rate_cache = getattr(caches, "rate", None)  # your scanner already provides this
                     # create model interface automatically from env (preferred)
-                    advisor = AIHoldingAdvisor(rate_cache=rate_cache)
+                    advisor = AIHoldingAdvisor(preferred_model=AI_MODEL.HUGGINGFACE,rate_cache=rate_cache)
 
                     option_data = {
                         "symbol": option.symbol,

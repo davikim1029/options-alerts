@@ -47,6 +47,7 @@ def get_mode_from_prompt():
         ("encrypt-etrade", "Encrypt Etrade Key And Secret"),
         ("get-ticker-opts", "Get option results for a given ticker"),
         ("get-ticker-exp", "Get option results for a given ticker"),
+        ("testAI","Test the AI Model"),
         ("test-newsapi", "Hit a NewsApi API"),
         ("quit", "Exit program")
     ]

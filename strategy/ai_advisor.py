@@ -34,18 +34,12 @@ import enum
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from services.scanner.scanner_utils import wait_rate_limit
-from strategy.FinMA7BLocal import FinMA7BLocal
 import requests
 
 from services.core.cache_manager import RateLimitCache  
 from services.logging.logger_singleton import getLogger
-from strategy.fin_ai_singleton import get_ai_interface
-from strategy.ai_constants import AIModelInterface,AI_MODEL
-
-
-class RateLimitError(Exception):
-    """Raised when Rate Limit hit."""
-    pass
+from strategy.ai_constants import AI_MODEL,all_ai_models,RateLimitError
+from strategy.ai_interface import AIModelInterface
 
 logger = getLogger()
 
@@ -86,12 +80,17 @@ def _extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
 # AIHoldingAdvisor
 # -------------------------
 class AIHoldingAdvisor:
-    def __init__(self, use_ai_model: bool = True, ai_model_interface: Optional[AIModelInterface] = None,
+    def __init__(self, preferred_model:AI_MODEL = None,
                  rate_cache: Optional[RateLimitCache] = None):
-        self.use_ai_model = use_ai_model
         self.rate_cache = rate_cache
+        self.provider_order = []
+        if preferred_model:
+            self.provider_order.append(preferred_model)
+            self.provider_order += [item for item in all_ai_models if item != preferred_model]
+        else:
+            self.provider_order = all_ai_models
+            
         # Use passed interface OR the singleton
-        self.ai_interface = ai_model_interface or get_ai_interface(rate_cache)
 
 
     def _heuristic_recommendation(self, option_data: Dict[str, Any], sentiment_score: Optional[float]) -> Dict[str, Any]:
@@ -160,19 +159,14 @@ class AIHoldingAdvisor:
         otherwise dynamically instantiates provider interface.
         Returns parsed JSON dict or None if all providers fail.
         """
-        from strategy.fin_ai_singleton import get_ai_interface  # lazy import to avoid circulars
 
         logger = getLogger()
 
-        if not self.ai_interface:
-            logger.logMessage("No AI interface configured.")
-            return None
-
-        attempts: Dict[str, int] = {p.name: 0 for p in self.ai_interface.provider_order}
+        attempts: Dict[str, int] = {p.name: 0 for p in self.provider_order}
         provider_index = 0
 
-        while provider_index < len(self.ai_interface.provider_order):
-            provider_enum = self.ai_interface.provider_order[provider_index]
+        while provider_index < len(self.provider_order):
+            provider_enum = self.provider_order[provider_index]
             provider_name = provider_enum.name
             attempts[provider_name] += 1
 
@@ -183,10 +177,7 @@ class AIHoldingAdvisor:
                 continue
 
             # Use preloaded local Hugging Face model if available
-            if provider_enum == AI_MODEL.HUGGINGFACE:
-                ai_iface = get_ai_interface(rate_cache=self.rate_cache)
-            else:
-                ai_iface = AIModelInterface.create_from_env(preferred=provider_enum, rate_cache=self.rate_cache)
+            ai_iface = AIModelInterface.create_from_env(preferred=provider_enum, rate_cache=self.rate_cache)
 
             if not ai_iface:
                 logger.logMessage(f"[AIHoldingAdvisor] {provider_name} unavailable or rate-limited; rotating...")
@@ -245,11 +236,6 @@ class AIHoldingAdvisor:
         Entry. Returns structured dict. Always returns heuristic fallback if AI unavailable.
         """
         base = self._heuristic_recommendation(option_data, sentiment_score)
-
-        # If AI disabled or no interface, return base heuristic
-        if not self.use_ai_model or not self.ai_interface:
-            return base
-
         # Check rate cache before calling
         try:
             if self.rate_cache is not None and self.rate_cache.is_cached("AIModel"):

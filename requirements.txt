@@ -19,3 +19,4 @@ transformers==4.55.4
 torch==2.8.0
 safetensors>=0.4.2
 sentencepiece
+holidays
